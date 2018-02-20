@@ -23,7 +23,11 @@ editor_options:
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
 ```
 
-\newpage
+<a href="https://raw.githubusercontent.com/emoriebeck/Idiographic-Network-Consistency/master/R/R_code_2.12.Rmd" download>Download .Rmd (won't work in Safari or IE)</a>  
+<a href="https://github.com/emoriebeck/Idiographic-Network-Consistency" target="_blank">See GitHub Repository</a>  
+<a href="https://osf.io/fyxza/" target="_blank">See OSF Repository</a>  
+<a href="https://psyarxiv.com/pb92q" target="_blank">PsyArXiv Preprint</a>   
+<a href="https://emoriebeck.shinyapps.io/pairs_graphicalvar/" target="_blank">RShiny Web App</a>   
 
 #Workspace
 
