@@ -12,7 +12,6 @@ output:
     code_folding: hide
     toc: true
     toc_float: true
-    toc_depth: 2
   pdf_document:
     toc: yes
     toc_depth: '2'
@@ -23,9 +22,6 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
 ```
-
-Left off formatting at the beginning of the consistency section
-maybe make some sort of reference for the footnotes
 
 \newpage
 
@@ -56,8 +52,12 @@ library(data.table)
 library(plyr)
 library(tidyverse)
 
-data_path <- "https://github.com/emoriebeck/PAIRS-Network-Stability"
-esm_codebook <- tbl_df(readxl::read_xlsx(sprintf("%s/data/Codebook.xlsx", data_path), sheet = "ESM"))
+rdata_path <- "https://github.com/emoriebeck/Idiographic-Network-Consistency/blob/master"
+data_path <- "https://raw.githubusercontent.com/emoriebeck/Idiographic-Network-Consistency/master"
+esm_codebook <- sprintf("%s/data/Codebook.csv", data_path) %>%
+  read.csv(., stringsAsFactors = F) %>% 
+  filter(type == "ESM") %>%
+  tbl_df
 ```
 
 ```{r}
@@ -244,7 +244,7 @@ gVAR_fit <- w1 %>%
   group_by(SID, wave, count) %>%
   nest() %>%
   mutate(gVAR_fit = pmap(list(data, SID, wave), possibly(gVAR_fun, NA_real_)))
-save(gVAR_fit, file = sprintf("%s/results/graphicalVAR_allSubs.RData", data_path))
+# save(gVAR_fit, file = sprintf("%s/results/graphicalVAR_allSubs.RData", data_path))
 ```
 
 
@@ -284,7 +284,7 @@ contemp_long_fun <- function(fit){
 #### Temporal
 ```{r, results = 'asis', message = FALSE, eval = T}
 # load idiographic networks #
-load(sprintf("%s/results/graphicalVAR_allSubs.RData", data_path))
+load(url(sprintf("%s/results/graphicalVAR_allSubs.RData?raw=true", rdata_path)))
 
 # run functions for extraction
 gVAR_fit <- gVAR_fit %>%
@@ -460,7 +460,6 @@ gVAR_data <- gVAR_fit %>%
   mutate(PDC = map(gVAR_fit, ~.$PDC),
          PCC = map(gVAR_fit, ~.$PCC)) %>%
   select(-gVAR_fit)
-save(gVAR_data, file = sprintf("%s/R/app_data.RData", data_path))
 
 # save all temporal centrality to a long format df
 (temp_centrality <- gVAR_fit %>%
@@ -529,8 +528,6 @@ centrality %>%
             axis.title = element_text(face = "bold"),
             legend.title = element_text(face = "bold"),
             legend.position = "bottom")
-
-ggsave(sprintf("%s/results/plots/centrality_plot_1+2.png", data_path), width = 5, height = 5)
 ```
 
 # Question 2: Is there longitudinal consistency in idiographic networks?
@@ -628,7 +625,6 @@ contemp_cors_long %>%
         legend.title = element_text(face = "bold"),
         legend.text = element_text(face = "bold"),
         legend.position = "bottom")
-ggsave(file = sprintf("%s/results/plots/Rank_Edge_Cors_heatmap.png", data_path), width = 9, height = 6)
 ```
 
 ### Person-Centered: Ipsative Consistency {.tabset}
@@ -808,14 +804,14 @@ gVAR_fit_split <- unique(expand.grid(stringsAsFactors = F,
   mutate(row = row_number(),
          gVAR_fit = pmap(list(SID, wave, split_type, split_num, row), 
                          possibly(gVAR_split_fun, NA_real_)))
-save(gVAR_fit_split, file = sprintf("%s/results/split_half_gVAR_fit.RData", data_path))
+# save(gVAR_fit_split, file = sprintf("%s/results/split_half_gVAR_fit.RData", data_path))
 ```
 
 
 ```{r, results = 'asis'}
 # run the same extraction procedure as above for split-half networks
 ##split half networks
-load(sprintf("%s/results/split_half_gVAR_fit.RData", data_path))
+load(url(sprintf("%s/results/split_half_gVAR_fit.RData?raw=true", rdata_path)))
 gVAR_fit_split <- gVAR_fit_split %>%
   filter(!is.na(gVAR_fit)) %>%
   group_by(SID, wave, split_type) %>%
@@ -881,8 +877,6 @@ plot_fun <- function(df, type){
         strip.text = element_text(face = "bold", size = rel(1.2)),
         plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5),
         legend.position = "none")
-  ggsave(sprintf("%s/results/plots/%s_split_reliability.png", data_path, type), 
-         width = 6, height = 4)
   print(plot)
   return(plot)
 }
@@ -900,7 +894,7 @@ ip_split_plot <- ip_split_cors %>%
 # Question 3: Are there Individual Differences in Idiographic Network Consistency?  
 ## Congruence with the Reference Profile
 ```{r}
-load(sprintf("%s/results/PAIRS_networks_pers_FINAL.RData", data_path))
+load(url(sprintf("%s/results/PAIRS_networks_pers_FINAL.RData?raw=true", rdata_path)))
 profile_cor_fun <- function(id_list, wave, type){
   if(type == "Temporal"){
     id_list <- id_list %>% select(from, to, type, weight) %>% arrange(from, to)
@@ -929,9 +923,11 @@ To look at individual differences in Network consistency, we user a Fisher r to 
 ```{r}
 ip_cors <- (ip_temp_cors) %>% full_join(ip_contemp_cors)
 
-ggplot(ip_cors, aes(x = cors, y = ..density..)) + 
+
+ggplot(ip_cors, aes(x = cors, y = ..density.., fill = type)) + 
+  scale_fill_manual(values = c("blue", "springgreen4")) +
   geom_histogram(color = "black", fill = "gray") +
-  geom_density(bw = .1, color = "royalblue2", fill = "royalblue2", alpha = .3)+
+  geom_density(bw = .1, alpha = .3)+
   scale_x_continuous(limits = c(-1,1), breaks = seq(-1,1,.5)) +
   labs(x = "Ipsative Correlations", y = "Density",
        title = "Ipsative Network Consistency") +
@@ -940,9 +936,8 @@ ggplot(ip_cors, aes(x = cors, y = ..density..)) +
   theme(axis.text = element_text(face = "bold", size = rel(1.2)),
         axis.title = element_text(face = "bold", size = rel(1.2)),
         strip.text = element_text(face = "bold", size = rel(1.2)),
-        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5))
-ggsave(sprintf("%s/results/plots/ipsative_cor.png", data_path), 
-       width  = 6, height = 3)
+        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5),
+        legend.position = "none")
 ```
 
 ### Table
@@ -980,8 +975,6 @@ ip_temp_cent_cors %>%
         axis.text = element_text(face = "bold", size = rel(1.2)),
         axis.title = element_text(face = "bold", size = rel(1.2)),
         strip.text = element_text(face = "bold", size = rel(1.2)))
-ggsave(sprintf("%s/results/plots/centrality_ipsative_cor.png", data_path), 
-       width  = 6, height = 3)
 ```
 
 ### Table
@@ -1207,7 +1200,6 @@ combined_centrality %>%
         axis.title = element_text(face = "bold"),
         legend.title = element_text(face = "bold"),
         legend.position = "bottom")#c(.87, .25))
-ggsave(sprintf("%s/results/plots/centrality_plot.png", data_path), width = 5, height = 3.5)
 ```
 
 ##### Table Temporal
@@ -1264,7 +1256,7 @@ In the temporal networks, worried (N) and relaxed (N) had the highest out-streng
 ### Network stability  
 Next, we assessed the stability of the population networks over time. To assess stability, we first calculated the profile correlation between the mlVAR fixed effects edge weights across the waves for both temporal and contemporaneous effects. Profile correlations index the stability of a profile of values over time - that is, how stable the positions of values are relative to all other values. Population networks were highly stable across waves. Contemporaneous network stability was almost at ceiling ($r$ = .99). Temporal network stability was still quite strong ($r$ = .68) but was significantly less stable than the contemporaneous networks ($z$ = 9.28, $p$ < .001).  
 
-```{r, eval = T, include = F}
+```{r, eval = F, include = F}
 # Save time and load the models from .Rdata file #
 save(fit1_w1, w1, sum_fit1_w1,  plot_w1, plot_w1_contemp,
      fit1_w2, w2, sum_fit1_w2,  plot_w2, plot_w2_contemp,
@@ -1678,9 +1670,9 @@ data.frame(consis_rs) %>%
 ##Profile Consistency Correlates: Profile Consistency Correlates: What May Explain Individual Differences in Network Consistency?
 ```{r, results = 'asis'}
 # read outcome variables from wave 1 #
-target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave 1/target_w1_RENAMED.csv", data_path))) %>%
+target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave-1/target_w1_RENAMED.csv", data_path))) %>%
   mutate(wave = "1", ts.IDnum.w1 = ifelse(ts.IDnum.w1 < 10000, ts.IDnum.w1 + 10000, ts.IDnum.w1))
-target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave 4/home_w4_RENAMED.csv", data_path))) %>%
+target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave-4/home_w4_RENAMED.csv", data_path))) %>%
   mutate(wave = "2", ts.IDnum.w4 = ifelse(ts.IDnum.w4 < 10000, ts.IDnum.w4 + 10000, ts.IDnum.w4))
 
 names.w1 <- colnames(target.ratings.initial.w1)
