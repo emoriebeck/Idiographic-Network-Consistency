@@ -1,0 +1,669 @@
+---
+title: "PAIRS Wave 7"
+author: "Emorie D Beck"
+date: \today
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+  html_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(eval = TRUE, fig.align = 'center')
+```
+
+```{r include=FALSE}
+rm(list = ls())
+source("~/Box Sync/network/PAIRS/mlVAR_testing.R")
+load("~/Box Sync/network/PAIRS/Wave 7/PAIRS_networks_pers.RData")
+```
+
+\newpage
+
+#Workspace
+
+##Packages
+
+```{r, results = 'hide', message = F, error = F, warning = F}
+library(ggplot2)
+library(qgraph)
+library(mlVAR)
+library(graphicalVAR)
+library(bootnet)
+library(NetworkComparisonTest)
+library(knitr)
+library(plyr)
+library(dplyr)
+library(gridExtra)
+library(tidyr)
+library(Rmisc)
+library(psych)
+library(lme4)
+```
+
+##Load Data
+
+```{r}
+wave7_all <- read.csv("~/Box Sync/network/PAIRS/Wave 7/esm_w7_RENAMED_all.csv")
+wave7_all <- tbl_df(wave7_all)
+```
+
+Going to add item table here.
+
+##Prepare data
+
+```{r}
+#Getting necessary columns, subject ID in col2
+#Keeping subject ID and all esm.BFI items
+w7 <- dplyr::select(wave7_all, esm.IDnum.w7, esm.PRO01.w7, esm.PRO03.w7, esm.PRO04.w7, esm.PRO05.w7,  matches("BFI"))
+w7 <- w7[,-which(colnames(w7) %in% c("esm.BFI20.w7", "esm.BFI12.w7"))]
+
+#Renaming variables for better ease of use
+varnames <- c("SID", "freq", "hourBlock", "day", "beepvar",
+              "E_outgoing","E_quiet",
+              "C_lazy","C_reliable",
+              "N_worried","N_relaxed",
+              "N_depressed", "A_rude",   
+              "A_kind")#,  "authentic",
+              #"SE", "Happy","Lonely",
+              #"pos_emotion", "neg_emotion")
+colnames(w7) <- varnames
+#varnames <- varnames[-c(17:18)]
+#w7 <- dplyr::select(w7, -pos_emotion, -neg_emotion)
+w7$SID <- factor(w7$SID)
+
+refcols <- c("SID", "freq", "hourBlock", "day", "beepvar",
+              "A_rude", "E_quiet", "C_lazy", 
+              "N_relaxed", "N_depressed", "E_outgoing", 
+              "A_kind", "C_reliable", "N_worried")#,
+              #"pos_emotion", "neg_emotion", "authentic", 
+              #"SE", "Happy", "Lonely")
+w7 <- w7[,c(refcols,setdiff(names(w7), refcols))]
+```
+
+##Screen Participants
+To be able to construct individual networks for participants, we ideally need approximately 50 measurement points. However, for current purposes, we will keep all participants who have at least 20 responses, lest we eliminate a large portion of our subjects.  
+```{r, eval = T}
+problem <- plyr::count(w7$SID)
+problem <- problem$x[which(problem$freq < 10)]
+
+excluded <- w7[which(w7$SID %in% problem),]
+w7 <- w7[-which(w7$SID %in% problem),]
+```
+
+##Replace Agreeableness items
+```{r}
+# replace NA values for agreeableness items with person average #
+for (i in unique(w7$SID)){
+  mean_A_rude <- mean(w7$A_rude[w7$SID == i])
+  w7$A_rude[is.na(w7$A_rude)] <- mean_A_rude
+  mean_A_kind <- mean(w7$A_kind[w7$SID == i])
+  w7$A_kind[is.na(w7$A_kind)] <- mean_A_kind
+}
+```
+
+##Within-Person Centering
+```{r}
+w7 <- w7[order(w7$SID, w7$day, w7$hourBlock),] 
+w7_com <- w7[complete.cases(w7),]
+w7_com <- w7_com[order(w7_com$SID, w7_com$day, w7_com$hourBlock),] 
+w7_com$beepvar2 <- NA
+w7_com$beepvar3 <- NA
+for (i in unique(w7_com$SID)){
+  for (k in unique(w7_com$day[which(w7_com$SID == i)])){
+    n <- dim(w7_com[which(w7_com$SID == i & w7_com$day == k),])[1]
+    w7_com$beepvar2[which(i == w7_com$SID & w7_com$day == k)] <- seq(1,n,1)
+  }
+  n2 <- dim(w7_com[which(w7_com$SID == i),])[1]
+  w7_com$beepvar3[which(w7_com$SID == i)] <- seq(1,n2,1)
+}
+
+w7_centered <- data.frame(ddply(w7_com[,-c(2:5,15:16)], .(SID), colwise(function(x) x-mean(x, na.rm = T))), w7_com[,c(2:5, 15:16)])
+
+# Make numeric subject IDs for each df because mlVAR #
+# won't run for factors #
+w7_com$SID2 <- as.numeric(w7_com$SID)
+w7_centered$SID2 <- as.numeric(w7_centered$SID)
+
+write.csv(w7, "~/Box Sync/network/PAIRS/Wave 7/esm_w7_networks.csv", row.names = F)
+
+write.csv(w7, "~/Box Sync/network/PAIRS/Wave 7/esm_w7_centered.csv", row.names = F)
+```
+
+---------------------------------------------------------------------
+Variable          New Name      Description
+----------------  ------------  -------------------------------------
+esm.IDnum.w7      SID           numeric variable; identification number
+
+esm.BFI37.w7      A_rude        agreeablness, negative; "During the last hour, how rude were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI21.w7	    E_quiet       extraversion, negative; "During the last hour, how quiet were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI23.w7	    C_lazy        conscientiousness, negative; "During the last hour, how lazy were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI09.w7	    N_relaxed     neuroticism, positive; "During the last hour, how relaxed were you?" Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI04.w7	    N_depressed   neuroticism, positive; "During the last hour, did you feel 'depressed, blue'?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI36.w7	    E_outgoing    extraversion, positive; "During the last hour, how 'outgoing, sociable' were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI32.w7	    A_kind        agreeablness, positive; "During the last hour, how 'considerate, kind' were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI13.w7	    C_reliable    conscientiousness, positive; "During the last hour, how reliable were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI19.w7	    N_worried     neuroticism, positive; "During the last hour, how worried were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI20.w7	    O_imagine     openness, positive; "During the last hour, how actively imaginative were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI12.w7	    A_quarrel     neuroticism, positive; "During the last hour, how quarrelsome were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+-------------------------------------------------------------------
+
+```{r, eval = T}
+# raw data #
+fit1_w7 <- 
+  mlVAR_test(w7_com, 
+        vars = colnames(w7)[6:14], #4:18
+        idvar = "SID2", 
+        lags = 1,
+        #dayvar = "day", 
+        beepvar = "beepvar3",
+        temporal = "orthogonal", 
+        verbose = FALSE,
+        scale = FALSE)
+
+
+
+# within-person centered data #
+fit1_w7_centered <- 
+  mlVAR_test(w7_centered, 
+        vars = colnames(w7_centered)[2:10], #2:16
+        idvar = "SID2", 
+        lags = 1,
+        #dayvar = "day", 
+        beepvar = "beepvar3",
+        temporal = "orthogonal", 
+        verbose = FALSE, 
+        scale = FALSE)
+```
+
+##Random Networks for Comparison
+```{r, eval = F}
+npeople <- length(names(fit1_w7$results$Beta$subject))
+nv <- 9
+subs <- names(fit1_w7$results$Beta$subject)
+nTime <- mean(plyr::count(w7$SID2[which(w7$SID2 %in% subs)])$freq)
+Model <- mlVARsim(nPerson = npeople, nNode = nv, nTime = nTime, lag=1)
+colnames(Model$Data)[1:9] <- varnames[6:14]
+Model$vars <- varnames[6:14]
+fit_random <- mlVAR_test(Model$Data, vars = Model$vars, idvar = Model$idvar, lags = 1,
+                         temporal = "orthogonal", scale = FALSE, verbose = FALSE)
+
+```
+
+
+
+##Temporal Relationships
+The graphs below show (1) the raw, directed network using gLASSO estimation and (2) the estimated, directed network using a univariate multilevel vector autoregressive models.  
+```{r, fig.width=8, fig.height=5}
+# Compare temporal relationships
+cors <- cor_auto(w7[,6:14], detectOrdinal = F)
+par(mfrow = c(1,2))
+# graph <- qgraph(
+#   cors, 
+#   title = "True temporal relationships", 
+#   layout = "spring", 
+#   graph = "glasso", 
+#   sampleSize = length(unique(w7$SID2)), 
+#   tuning = .5, 
+#   directed = T, 
+#   details = T)#, 
+#   #minimum = .2)
+#qgraph(getWmat(graph), directed = T)
+
+plot_w7 <- 
+#makeBW(
+  plot(fit1_w7, 
+     "temporal", 
+     #title = "Raw Estimated temporal relationships", 
+     layout = "spring", 
+     groups = list(Neuroticism = c(4,5,9),
+                   Extraversion = c(2,6),
+                   Agreeableness = c(1,7), 
+                   Conscientiousness = c(3,8)),
+     shape = "square",
+     cut = .015,
+     label.color = "white",
+     label.font = 2,
+     nonsig = 'hide',
+     curve = -1,
+     #legend.cex = .3,
+     legend = FALSE,
+     repulsion = .5,
+     node.width = 1.4,
+     edge.width = 2, 
+     label.cex = 6, 
+     label.fill.vertical = 1,
+     label.fill.horizontal = 1,
+     #gray = T,#),
+     color = c("gray15", "gray30", "gray45", "gray50"))
+# text(.7,1, labels = "negative", adj = 0, cex = 1.2)
+# text(.7,1.1, labels = "positive", adj = 0, cex = 1.2)
+# text(.55, 1.2, labels = "Edge Weights", adj = 0, cex = 1.2)
+# segments(.55, 1, x1 = .65, lty = 2, lwd = 1.5)
+# segments(.55, 1.1, x1 = .65, lty = 1, lwd = 1.5)
+
+plot_w7_centered <- 
+#makeBW(
+  plot(fit1_w7_centered, 
+     "temporal", 
+     #title = "Raw Estimated temporal relationships", 
+     layout = "spring", 
+     groups = list(Neuroticism = c(4,5,9),
+                   Extraversion = c(2,6),
+                   Agreeableness = c(1,7), 
+                   Conscientiousness = c(3,8)),
+     shape = "square",
+     cut = .015,
+     label.color = "white",
+     label.font = 2,
+     nonsig = 'hide',
+     curve = -1,
+     #legend.cex = .3,
+     legend = FALSE,
+     repulsion = .5,
+     node.width = 1.4,
+     edge.width = 2, 
+     label.cex = 6, 
+     label.fill.vertical = 1,
+     label.fill.horizontal = 1,
+     gray = F,#),
+     color = c("gray15", "gray30", "gray45", "gray50"))
+# text(.7,1, labels = "negative", adj = 0, cex = 1.2)
+# text(.7,1.1, labels = "positive", adj = 0, cex = 1.2)
+# text(.55, 1.2, labels = "Edge Weights", adj = 0, cex = 1.2)
+# segments(.55, 1, x1 = .65, lty = 2, lwd = 1.5)
+# segments(.55, 1.1, x1 = .65, lty = 1, lwd = 1.5)
+```
+
+```{r, results= 'hide'}
+#model summary
+sum_fit1_w7              <- summary(fit1_w7)
+sum_fit1_w7_centered     <- summary(fit1_w7_centered)
+```
+
+```{r}
+kable(sum_fit1_w7$temporal, caption = "Estimated Temporal Relationships")
+kable(sum_fit1_w7_centered$temporal, caption = "Estimated Temporal Relationships")
+```
+
+```{r, eval = T, include = F}
+# Save time and load the models from .Rdata file #
+save(fit1_w7, fit1_w7_centered, w7_com, w7_centered, sum_fit1_w7, sum_fit1_w7_centered, plot_w7, plot_w7_centered, file = "~/Box Sync/network/Pairs/Wave 7/PAIRS_networks_pers.RData")
+```
+
+\newpage
+
+##Population Level Questions
+
+###Global Network Structure
+
+####Network Size
+```{r}
+network_size <- data.frame(
+#temporal - significant only
+temporal = c(
+sum(sum_fit1_w7$temporal$P < .05),
+sum(sum_fit1_w7_centered$temporal$P < .05)))
+rownames(network_size) <- c("Raw", "Within-Person Centered")
+kable(t(network_size), caption = "Network Size")
+```
+
+####Network Density
+Calculating Density:  
+\begin{enumerate} 
+\item From Bringmann et al. (2016): averaging over the absolute values of the slopes or edges in the network of the emotions of interest
+\item Per Yoed's suggestion: 
+\begin{itemize} 
+    \item Potential Connections: $PC = \frac{n * (n-1)}{2}$, where $n$ is the number of nodes.
+    \item Network Density: $\frac{Actual Connections}{Potential Connections}$, where actual connections is the sum of the number of edges in the network.
+\end{itemize}
+\end{enumerate}
+
+```{r}
+n <- 9
+PC <- (n * (n-1))/2
+density <- data.frame(
+#temporal
+temporal = c(
+sum(sum_fit1_w7$temporal$P < .05)/PC,
+sum(sum_fit1_w7_centered$temporal$P < .05)/PC))
+rownames(density) <- c("Raw", "Within-Person Centered")
+kable(t(density), caption = "Network Density")
+```
+
+####Network Activation
+```{r,eval = T}
+###############################
+# temporal - significant only #
+###############################
+#raw
+temporal <- data.frame(positive_edges = c(
+sum(sum_fit1_w7$temporal$P < .05 & sum_fit1_w7$temporal$fixed > 0), # positive edges
+sum(sum_fit1_w7_centered$temporal$P < .05 & sum_fit1_w7_centered$temporal$fixed > 0))) # positive edges
+
+temporal$negative_edges <- c(
+sum(sum_fit1_w7$temporal$P < .05 & sum_fit1_w7$temporal$fixed < 0),# negative edges
+sum(sum_fit1_w7_centered$temporal$P < .05 & sum_fit1_w7_centered$temporal$fixed < 0)) # negative edges
+
+temporal$t_value <- c(
+#t test comparing positive and negative edges; not run because of too few observations
+t.test(abs(sum_fit1_w7$temporal$fixed[which(sum_fit1_w7$temporal$P < .05 & sum_fit1_w7$temporal$fixed > 0)]),abs(sum_fit1_w7$temporal$fixed[which(sum_fit1_w7$temporal$P < .05 & sum_fit1_w7$temporal$fixed < 0)]), equal.var = T)$statistic,
+#centered
+#t test comparing positive and negative edges; not run because of too few observations
+t.test(abs(sum_fit1_w7_centered$temporal$fixed[which(sum_fit1_w7_centered$temporal$P < .05 & sum_fit1_w7_centered$temporal$fixed > 0)]),abs(sum_fit1_w7_centered$temporal$fixed[which(sum_fit1_w7_centered$temporal$P < .05 & sum_fit1_w7_centered$temporal$fixed < 0)]), equal.var = T)$statistic)
+
+rownames(temporal) <- c("Raw", "Within-Person Centered")
+kable(t(temporal), caption = "Network Activation (Positive v. Negative Edges)")
+```
+
+####Bootstrapped Confidence Intervals
+
+###Local Network Structure
+
+####Centrality
+Not sure why centrality plots for contemporaneous and between-subjects networks are identical.
+```{r, fig.height=4}
+#temporal
+#raw
+temporal_centrality_w7_raw      <- centrality_auto(sum_fit1_w7$temporal[,c(1,2,4)])
+temporal_centrality_w7_raw_plot <- centralityPlot(sum_fit1_w7$temporal[,c(1,2,4)])
+
+#centered
+temporal_centrality_w7_centered      <- centrality_auto(sum_fit1_w7_centered$temporal[,c(1,2,4)])
+temporal_centrality_w7_centered_plot <- centralityPlot(sum_fit1_w7_centered$temporal[,c(1,2,4)])
+```
+
+#####Bootstrapped Confidence Intervals
+
+####Clustering Coefficients
+```{r}
+#temporal
+temporal_clustcoef_w7_raw      <- clustZhang(sum_fit1_w7$temporal[,c(1,2,4)])
+temporal_clustcoef_w7_centered <- clustZhang(sum_fit1_w7_centered$temporal[,c(1,2,4)])
+#clusteringTable(sum_fit1_w7$temporal[,c(1,2,4)])
+
+save(temporal_centrality_w7_raw, temporal_centrality_w7_centered, 
+     temporal_clustcoef_w7_raw, temporal_clustcoef_w7_centered, 
+     file = "~/Box Sync/network/PAIRS/Wave 7/centrality_w7_pers.RData")
+```
+
+\newpage
+
+##Inter-Individual Questions
+Going to duplicate the analyses below (temporal subject networks) with contemporaneous subject networks
+
+###Bootstrapped Confidence Intervals of Parameter Estimates
+
+```{r, cache = T, warning = F, message=F, error = F, eval = F}
+raw_models <- fit1_w7$output
+raw_boot_CI <- llply(raw_models, function(X) confint(X, method = "boot"))
+
+centered_models <- fit1_w7_centered$output
+centered_boot_CI <- llply(centered_models, function(X) confint(X, method = "boot"))
+```
+
+####Raw Values
+```{r, eval = F}
+#Error in data[[idvar]] : subscript out of bounds
+#Error in .subset2(x, i, exact = exact) : 
+#  attempt to select less than one element in get1index
+#data[[beepvar]] <- ave(data[[idvar]], data[[idvar]], data[[dayvar]], 
+#    FUN = seq_along)
+#problem appears to be in dayvar
+#Error in validObject(.Object) : 
+  #invalid class “dgCMatrix” object: invalid object for slot "i" in class "dgCMatrix": 
+  #got class "numeric", should be or extend class "integer"
+w7$beepvar <- ave(w7[["SID"]], w7[["SID"]], w7[["day"]], 
+                  FUN = seq_along)
+bootnet(w7, 
+        default = "none",
+        nBoots = 25,
+        type = "nonparametric",
+        prepFun = null,
+        prepArgs = list(),
+        estFun = mlVAR::mlVAR,
+        estArgs = list(data = w7,
+                       vars = colnames(w7)[4:16], 
+                       idvar = "SID2",
+                       dayvar = "day",
+                       beepvar = "beepvar",
+                       lags = 1,temporal = "orthogonal", 
+                       verbose = FALSE),
+        graphFun = function(x)x,
+        graphArgs = list(type = "temporal", 
+                         title = "Estimated temporal relationships",
+                         layout = "spring"),
+        intFun = null, 
+        intArgs = list())
+```
+
+####Centered Values
+```{r, eval = F}
+#Error in data[[idvar]] : subscript out of bounds
+#Error in .subset2(x, i, exact = exact) : 
+#  attempt to select less than one element in get1index
+#data[[beepvar]] <- ave(data[[idvar]], data[[idvar]], data[[dayvar]], 
+#    FUN = seq_along)
+#problem appears to be in dayvar
+#Error in validObject(.Object) : 
+  #invalid class “dgCMatrix” object: invalid object for slot "i" in class "dgCMatrix": 
+  #got class "numeric", should be or extend class "integer"
+w7_centered$beepvar <- ave(w7_centered[["SID"]], w7_centered[["SID"]], w7_centered[["day"]], 
+                  FUN = seq_along)
+bootnet(w7_centered, 
+        default = "none",
+        nBoots = 25,
+        type = "nonparametric",
+        prepFun = null,
+        prepArgs = list(),
+        estFun = mlVAR::mlVAR,
+        estArgs = list(data = w7_centered,
+                       vars = colnames(w7_centered)[2:14], 
+                       idvar = "SID2",
+                       dayvar = "day",
+                       beepvar = "beepvar",
+                       lags = 1,temporal = "orthogonal", 
+                       verbose = FALSE),
+        graphFun = function(x)x,
+        graphArgs = list(type = "temporal", 
+                         title = "Estimated temporal relationships",
+                         layout = "spring"),
+        intFun = null, 
+        intArgs = list())
+```
+
+\newpage
+
+#Graphical VAR Models
+```{r, cache = T, eval = F}
+comp <- ddply(w7, .(SID), numcolwise(mean))
+
+with(comp, {
+  comp <- comp[order(E_quiet, C_lazy, N_relaxed, N_depressed, E_outgoing, C_reliable, N_worried,A_rude, A_kind),]})
+
+
+w7_com <- read.csv("~/Box Sync/network/PAIRS/Wave 7/esm_w7_networks.csv")
+
+subs <- as.character(unique(w7_com$SID))
+#10308 and 27 have similar composite profiles
+
+
+sds <- ddply(w7_com[,c(1,6:14)], .(SID), colwise(function(x) ifelse(sd(x, na.rm = T) == 0, 1, 0)))
+sds$all <-rowSums(sds[,2:10])
+problem <- as.character(sds$SID[sds$all > 0])
+
+
+subs <- subs[-which(subs %in% problem)]
+w7_test <- w7_com[which(w7_com$SID %in% subs),]
+subs2 <- as.character(unique(w7_test$SID))
+
+source('~/Box Sync/network/PAIRS/graphicalVAR_testing.R', echo=TRUE)
+
+gVAR_fit <- list()
+warningSID <- c("")
+errorSID <- c("")
+for (i in subs2){
+  tryCatch({ 
+    print(i)
+   if(i == "36" | i == "74" | i == "10132"){
+      write.table(matrix(c(i, "R freezes"), nrow = 1),
+                  file = "~/Box Sync/network/PAIRS/Wave 7/errorSID copy3.txt",
+                  append = TRUE, col.names = FALSE, sep = ",", row.names = FALSE)
+    } else { #if(!(i %in% w7.singular$SID) & !(i %in% w7.error$SID) & !(i %in% w7.missing$SID)){
+    print("graphicalVAR")
+    fit <- suppressMessages(suppressWarnings(graphicalVAR(w7_test[which(w7_test$SID == i), 6:14], 
+                        nLambda = 25,
+                        gamma = 0,
+                        maxit.in = 50,
+                        lambda_beta = 0,
+                        verbose = F,
+                        scale = F)))
+    gVAR_fit[[i]] <- fit
+    filename <- paste("~/Box Sync/network/PAIRS/Wave 7/graphicalVAR/lambda_beta=0/", i, ".RData", sep = "")
+    save(fit, file = filename)
+    } #else if(i %in% w7.singular$SID | i %in% w7.error$SID | i %in% w7.missing$SID){
+    #   print("graphicalVAR_test")
+    #   fit <- suppressMessages(suppressWarnings(graphicalVAR_test(w7_test[which(w7_test == i), 6:14], 
+    #                     nLambda = 25,
+    #                     maxit.in = 50,
+    #                     verbose = F,
+    #                     scale = F)))
+    #   gVAR_fit[[i]] <- fit
+    #   filename <- paste("~/Box Sync/network/PAIRS/Wave 7/graphicalVAR/", i, ".RData", sep = "")
+    #   save(fit, file = filename)
+    # }
+  
+  }
+, 
+  error=function(e){
+    cat("ERROR :",conditionMessage(e), "\n")
+    write.table(matrix(c(i, conditionMessage(e)), nrow = 1), file = "~/Box Sync/network/PAIRS/Wave 7/errorSID copy3.txt", 
+                append = TRUE, col.names = FALSE, sep = ",", row.names = FALSE)},
+  warning = function(w){
+    cat("WARNING :",conditionMessage(w), "\n")
+    write.table(paste(i, conditionMessage(w), sep = "_"), file = "~/Box Sync/network/PAIRS/Wave 7/warningSID copy.txt", 
+                append = TRUE, col.names = FALSE, sep = ",", row.names = FALSE)
+     })
+}
+
+
+#10308 and 27 have similar composite profiles
+
+fit10308 <- graphicalVAR(w7[which(w7$SID == 10308),4:16],
+                     gamma = 0, verbose = F)
+fit10219 <- graphicalVAR(w7[which(w7$SID == 10219),4:16],  
+                     gamma = 0, verbose = F)
+
+#compare plots of partial contemporaneous correlations for both subjects
+par(mfcol = c(1,2))
+plot(fit10308, include = "PCC", layout = "spring")
+plot(fit10219, include = "PCC", layout = "spring")
+
+#compare plots of partial directed correlations for both subjects
+plot(fit10308, include = "PDC", layout = "spring")
+plot(fit10219, include = "PDC", layout = "spring")
+```
+
+##Idiographic Questions
+
+###Global Network Structure
+
+####Network Size
+
+```{r, eval = F}
+#Partial Contemporaneous Correlations (PCC)
+sum(fit10308$PCC != 0)
+sum(fit10219$PCC != 0)
+
+#Partial Directed Correlations (PDC)
+sum(fit10308$PDC != 0)
+sum(fit10219$PDC != 0)
+```
+
+####Network Density
+
+```{r, eval = F}
+n <- 13
+PC <- (n * (n-1))/2
+
+#PCC
+sum(fit10308$PCC != 0) / PC
+sum(fit10219$PCC != 0) / PC
+
+#PDC
+sum(fit10308$PDC != 0) / PC
+sum(fit10219$PDC != 0) / PC
+```
+
+####Network Activation
+
+```{r, eval = F}
+#Partial Contemporaneous Correlations (PCC)
+#Subject 10308
+sum(fit10308$PCC > 0) # positive edges
+sum(fit10308$PCC < 0) # negative edges
+#t test comparing positive and negative edges; not run because of too few observations
+#t.test(abs(sum(fit10308$PCC > 0)), abs(sum(fit10308$PCC < 0)), equal.var = T)
+
+#Subject 10219
+sum(fit10219$PCC > 0) # positive edges
+sum(fit10219$PCC < 0) # negative edges
+#t test comparing positive and negative edges; not run because of too few observations
+#t.test(abs(sum(fit10219$PCC > 0)), abs(sum(fit10219$PCC < 0)), equal.var = T)
+
+#Partial Directed Correlations (PDC)
+#Subject 10308
+sum(fit10308$PDC > 0) # positive edges
+sum(fit10308$PDC > 0) # positive edges
+#t test comparing positive and negative edges; not run because of too few observations
+#t.test(abs(sum(fit10308$PCC > 0)), abs(sum(fit10308$PCC < 0)), equal.var = T)
+
+#Subject 10219
+sum(fit10219$PDC < 0) # negative edges
+sum(fit10219$PDC < 0) # negative edges
+#t test comparing positive and negative edges; not run because of too few observations
+#t.test(abs(sum(fit10219$PCC > 0)), abs(sum(fit10219$PCC < 0)), equal.var = T)
+```
+
+###Local Network Structure
+
+####Centrality
+```{r, fig.height=4, eval = F}
+#PCC
+#adjacency matrices
+PCC_adj_10308 <- melt(fit10308$PCC)
+PCC_adj_10219 <- melt(fit10219$PCC)
+
+#Subject 10308
+PCC_centrality_10308 <- centrality_auto(PCC_adj_10308)
+centralityPlot(PCC_adj_10308)
+#Subject 10219
+PCC_centrality_10219 <- centrality(PCC_adj_10219)
+centralityPlot(PCC_adj_10219)
+
+#PCC
+#adjacency matrices
+PDC_adj_10308 <- melt(fit10308$PDC)
+PDC_adj_10219 <- melt(fit10219$PDC)
+
+#Subject 10308
+PDC_centrality_10308 <- centrality_auto(PDC_adj_10308)
+centralityPlot(PDC_adj_10308)
+#Subject 10219
+PDC_centrality_10219 <- centrality_auto(PDC_adj_10219)
+centralityPlot(PDC_adj_10219)
+```

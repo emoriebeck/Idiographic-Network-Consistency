@@ -1,0 +1,1783 @@
+---
+title: "Consistency and Change in Idiographic Personality: A Longitudinal ESM Network Study Supplementary Code"
+author: 
+  - "Emorie D Beck"
+  - "Joshua J Jackson"
+date: "`r Sys.setlocale('LC_TIME', 'C'); format(Sys.time(), '%d\\\\. %B %Y')`"
+output:
+  html_document:
+    theme: united
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+    toc: true
+    toc_float: true
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
+```
+
+Left off formatting at the beginning of the consistency section
+maybe make some sort of reference for the footnotes
+
+\newpage
+
+#Workspace
+
+##Packages
+
+```{r, results = 'hide', message = F, error = F, warning = F}
+library(lavaan)
+library(qgraph)
+library(igraph)
+library(glasso)
+library(mlVAR)
+library(graphicalVAR)
+library(knitr)
+library(kableExtra)
+library(gridExtra)
+library(Rmisc)
+library(psych)
+library(stargazer)
+library(Matrix)
+library(papaja)
+library(pander)
+library(RColorBrewer)
+library(stringr)
+library(magrittr)
+library(data.table)
+library(plyr)
+library(tidyverse)
+
+data_path <- "~/Box Sync/network/PAIRS/consistency"
+esm_codebook <- tbl_df(readxl::read_xlsx(sprintf("%s/data/Codebook.xlsx", data_path), sheet = "ESM"))
+```
+
+```{r}
+meanSD_r2z2r <- function(x) {
+  z <- fisherz(x)
+  z[is.infinite(z)] <- NA
+  x_bar <- mean(z, na.rm = T)
+  x_sd <- sd(z, na.rm = T)
+  r_bar <- fisherz2r(x_bar)
+  r_sd <- fisherz2r(x_sd)
+  return(c(r_bar, r_sd))
+}
+```
+
+#Prepare Data
+The data include three waves of experience sampling method data from the Personality and Intimate Relationship Study. Data were previously cleaned to remove data points that did not meet inclusion criteria.  
+
+##Load Data
+```{r}
+wave1_all <- read.csv(sprintf("%s/data/esm_w1_RENAMED.csv",     data_path)) %>% tbl_df
+wave4_all <- read.csv(sprintf("%s/data/esm_w4_RENAMED_all.csv", data_path)) %>% tbl_df
+wave7_all <- read.csv(sprintf("%s/data/esm_w7_RENAMED_all.csv", data_path)) %>% tbl_df
+```
+
+##Clean Data
+Because the data sets include data that are not being used in this study, we extract the relevant columns (Subject ID, frequency, hour block, day of study, measurement point, and personality items) from the original data frames. Next, we rename the columns for later ease of use and visualization. Finally, because of the small sample size for waves 4 and 7, we merge those data sets.  
+```{r}
+old.names <- esm_codebook$old_name
+new.names <- esm_codebook$new_name
+
+#Getting necessary columns
+#Keeping subject ID and all esm.BFI items
+w1 <- wave1_all %>%
+  select(one_of(paste(old.names, "w1", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
+         wave = "1") %>%
+  filter(complete.cases(.))
+w4 <- wave4_all %>%
+  select(one_of(paste(old.names, "w4", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
+         wave = "4")
+w7 <- wave7_all %>%
+  select(one_of(paste(old.names, "w7", sep = "."))) %>%
+  setNames(new.names) %>% # change column names
+  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
+         wave = "7")
+
+# merge wave 4 and 7 data sets
+w2 <- w4 %>% full_join(w7) %>%
+  filter(complete.cases(.))
+
+head(w1)
+head(w2)
+```
+
+---------------------------------------------------------------------
+Variable          New Name      Description
+----------------  ------------  -------------------------------------
+esm.IDnum.w1      SID           numeric variable; identification number
+
+esm.BFI37.w1      A_rude        agreeablness, negative; "During the last hour, how rude were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI21.w1	    E_quiet       extraversion, negative; "During the last hour, how quiet were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI23.w1	    C_lazy        conscientiousness, negative; "During the last hour, how lazy were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI09.w1	    N_relaxed     neuroticism, positive; "During the last hour, how relaxed were you?" Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI04.w1	    N_depressed   neuroticism, positive; "During the last hour, did you feel 'depressed, blue'?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI36.w1	    E_outgoing    extraversion, positive; "During the last hour, how 'outgoing, sociable' were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI32.w1	    A_kind        agreeablness, positive; "During the last hour, how 'considerate, kind' were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI13.w1	    C_reliable    conscientiousness, positive; "During the last hour, how reliable were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+
+esm.BFI19.w1	    N_worried     neuroticism, positive; "During the last hour, how worried were you?"	Likert scale from 1 to 5; 1 = Not a lot, 3 = Somewhat, 5 = Very
+-------------------------------------------------------------------
+
+
+##Missing Data Handling
+Participants in the study only answered Agreeableness items if they indicated they were interacting with another person during the hour block previous to responding. To retain those measurement points for use in models later, we fill in gaps using within-person means of Agreeabless items.  
+```{r}
+for (i in unique(w1$SID)){
+  mean_A_rude <- mean(w1$A_rude[w1$SID == i], na.rm = T)
+  w1$A_rude[is.na(w1$A_rude) & w1$SID == i] <- mean_A_rude
+  mean_A_kind <- mean(w1$A_kind[w1$SID == i], na.rm = T)
+  w1$A_kind[is.na(w1$A_kind) & w1$SID == i] <- mean_A_kind
+}
+
+for (i in unique(w2$SID)){
+  mean_A_rude <- mean(w2$A_rude[w2$SID == i], na.rm = T)
+  w2$A_rude[is.na(w2$A_rude) & w2$SID == i] <- mean_A_rude
+  mean_A_kind <- mean(w2$A_kind[w2$SID == i], na.rm = T)
+  w2$A_kind[is.na(w2$A_kind) & w2$SID == i] <- mean_A_kind
+}
+```
+
+## Response Order & Screening Participants 
+Because we want to know the precise order of responses of actually collected responses, we make a column with sequential numbering. Then we calculate composites for at item for later use.  
+To be able to construct individual networks for participants, we ideally need approximately 50 measurement points. However, for current purposes, we will keep all participants who have at least 10 responses, lest we eliminate a large portion of our subjects.  
+
+```{r}
+w1 <- w1 %>%
+  group_by(SID) %>%
+  arrange(day, hourBlock) %>%
+  mutate(beep_seq = seq(1, n(), 1)) %>%
+  group_by(SID) %>%
+  mutate_at(vars(A_rude:N_worried), funs(comp = mean)) %>%
+  ungroup() 
+
+w2 <- w2 %>%
+  group_by(SID) %>%
+  arrange(wave, day, hourBlock) %>%
+  mutate(beep_seq = seq(1, n(), 1)) %>%
+  group_by(SID) %>%
+  mutate_at(vars(A_rude:N_worried), funs(comp = mean)) %>%
+  ungroup() 
+
+jitter_fun <- function(df){
+  sd_fun <- function(x){if(sd(x, na.rm = T) == 0) jitter(x, amount = runif(1,0,.05)) else x}
+  df2 <- data.frame(apply(df, 2, sd_fun))
+  colnames(df2) <- colnames(df2)
+  return(df2)
+}
+
+# filter out people who had < 10 responses and 
+#calculate SD's to find people with no variance in responses
+w1 <- w1 %>%
+  select(SID, wave, beep_seq, A_rude:N_worried) %>%
+  group_by(SID) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  mutate(count = n()) %>%
+  filter(count > 10) %>%
+  group_by(SID, count, wave) %>% 
+  nest() %>%
+  mutate(data2 = map(data, jitter_fun)) %>%
+  unnest(data2, .drop = T)
+
+w2 <- w2 %>%
+  select(SID, beep_seq, A_rude:N_worried) %>%
+  group_by(SID) %>%
+  mutate_if(is.integer, as.numeric) %>%
+  mutate(count = n(), wave = "2") %>%
+  filter(count > 10) %>%
+  group_by(SID, count, wave) %>% 
+  nest() %>%
+  mutate(data2 = map(data, jitter_fun)) %>%
+  unnest(data2, .drop = T)
+
+head(w1)
+head(w2)
+```
+
+# Question 1: Idiographic Network Structure
+Although mlVAR includes both population and subject level effects, it represents subject level effects as deviations from population effects rather than exmaning unique subject-level patterns. To assess such unique effects, below we construct individual networks for all subjects at each wave.  
+
+### Run Models
+For idiographic networks, we estimate a Gaussian graphical model (GGM) variation of the vector autoregressive model (VAR), which estimates a partial correlation network in which correlations represent the correlation between variables after conditioning on all other variables. These models are regularized using a variant of the least absolute shrinkage and selection operator (LASSO), graphical LASSO (glasso). In addition, glasso includes a tuning parameter that can be set to control the sparsity of the network. Different values of the parameter can be chosen to optimize prediction accuracy to minimize an information criterion, such as the Bayesian information criterion (BIC) or the extended BIC (EBIC; Chen & Chen, 2008).  
+
+Note that a few subjects are manually removed below because the graphicalVAR function is still developmental and crashes R when run on their data.  
+
+```{r, eval = F, message = F, results = 'hide', warnings = F}
+# save those subjects to a vector
+gVAR_fun <- function(x, SID, wave){
+  gamma <- 0
+  lambda <- seq(.025, 1, .025)
+  x <- x %>% select(A_rude:N_worried)
+  fit <-
+    graphicalVAR(x, gamma = gamma, maxit.in = 1000, maxit.out = 1000,
+                      lambda_beta = lambda, lambda_kappa = lambda,
+                      verbose = T, scale = F, centerWithin = F)
+  return(fit)
+}
+
+gVAR_fit <- w1 %>%
+  full_join(w2) %>%
+  arrange(wave, SID) %>%
+  filter(!(wave == "2" & SID %in% c("10440", "10516", "10248")) &
+         !(wave == "1" & SID %in% c("10059", "10434"))) %>%
+  select(-contains("sd")) %>%
+  group_by(SID, wave, count) %>%
+  nest() %>%
+  mutate(gVAR_fit = pmap(list(data, SID, wave), possibly(gVAR_fun, NA_real_)))
+save(gVAR_fit, file = sprintf("%s/R/graphicalVAR_allSubs.RData", data_path))
+```
+
+
+
+## Edge Weights: What Is the Structure of Idiographic Personality Networks? 
+```{r}
+# short function for extracting temporal results and saving to a long format df
+temp_fun <- function(fit, SID){
+  PDC <- fit$PDC
+  from <- row.names(PDC)
+  PDC.long <- tbl_df(PDC) %>%
+    mutate(from = from, type = "Temporal") %>%
+    gather(key = to, value = weight, A_rude:N_worried)
+}
+
+# short fun for extracting contemporaneous matrix
+contemp_mat_fun <- function(fit){fit$PCC}
+
+# short fun for extracting contemporaneous results and saving to long format df
+contemp_long_fun <- function(fit){
+  PCC <- fit$PCC
+  PCC <- PCC[,order(colnames(PCC))]
+  PCC <- PCC[order(rownames(PCC)),]
+  PCC[lower.tri(PCC, diag = T)] <- NA
+  vars <- rownames(PCC)
+  PCC.long <- tbl_df(PCC) %>%
+    mutate(Var1 = vars,
+           type = "Contemporaneous") %>%
+    gather(key = Var2, value = weight, A_kind:N_worried) %>%
+    filter(!is.na(weight)) %>%
+    unite(var, Var1, Var2, sep = ".", remove = F)
+}
+
+```
+
+### Cross-Sample Averages {.tabset}
+#### Temporal
+```{r, results = 'asis', message = FALSE, eval = T}
+# load idiographic networks #
+load(sprintf("%s/R/graphicalVAR_allSubs.RData", data_path))
+
+# run functions for extraction
+gVAR_fit <- gVAR_fit %>%
+  filter(!is.na(gVAR_fit)) %>%
+  mutate(temp = map2(gVAR_fit, SID, temp_fun),
+         contemp_mat = map(gVAR_fit, contemp_mat_fun),
+         contemp = map(gVAR_fit, contemp_long_fun))
+
+# Temporal: Partial Directed Correlations
+temp_long <- gVAR_fit %>%
+  unnest(temp, .drop = T) %>%
+  mutate(type = "Temporal")
+
+# grab and print averages
+temp_long %>%
+  group_by(wave, from, to) %>%
+  summarise(r = meanSD_r2z2r(weight)[1]) %>%
+  arrange(desc(r)) %>%
+  spread(key = wave, value = r) %>%
+  kable(., "html", booktabs = T, longtable = T,
+        caption = "Average Temporal Edge Weights") %>%
+  kable_styling(bootstrap_options = c("striped"),full_width = T) %>%
+  scroll_box(width = "750px", height = "400px")
+```
+
+#### Contemporaneous
+```{r, results = 'asis'}
+#Contemporaneous: Partial Contemporaneous Correlations
+contemp_long <- gVAR_fit %>%
+  unnest(contemp, .drop = T) %>%
+  mutate(Var1 = factor(Var1, levels = sort(unique(Var1))),
+         Var2 = factor(Var2, levels = sort(unique(Var2))),
+         type = "Contemporaneous") 
+
+contemp_long %>%
+  group_by(wave, var) %>%
+  summarise(r = meanSD_r2z2r(weight)[1]) %>%
+  arrange(desc(r)) %>%
+  spread(key = wave, value = r) %>%
+  kable(., "html", booktabs = T, longtable = T,
+        caption = "Average Contemporaneous Edge Weights") %>%
+  kable_styling(bootstrap_options = c("striped"), full_width = T) %>%
+  scroll_box(width = "750px", height = "400px")
+
+# get SIDs from models
+SID_w1 <- as.character(unique((gVAR_fit %>% filter(wave == "1"))$SID))
+SID_w2 <- as.character(unique((gVAR_fit %>% filter(wave == "2"))$SID))
+
+# find subjects in both waves
+w1w2_subs <- unique(SID_w1)[unique(SID_w1) %in% unique(SID_w2)]
+```
+
+### Plots (Figures 2 & 3) {.tabset}
+It's easy to create simple plots of graphivalVAR objects in R. The code below exactly reproduces Figures 2 and 3 in the manuscript.   
+```{r}
+edge_colors <- RColorBrewer::brewer.pal(8, "Purples")[c(3,4,6)]
+idio_plot_fun <- function(data, subject, wave, type){
+  if(type == "Temporal"){data_mod <- data$PDC}
+  else{data_mod <- data$PCC}
+  b5_groups <- list(A = c(1,7), E = c(2, 6), C = c(3,8), N = c(4,5,9))
+  subject <- ifelse(subject == "10008", "1", 
+             ifelse(subject == "10240", "2", subject))
+  plot <- 
+    qgraph(data_mod, layout = "spring", loop = .7, node.width = 1.85, edge.width = 1,
+           esize = 7, title = sprintf("%s Wave %s for S%s", type, wave, subject),
+           label.font = 2, repulsion = .8, label.fill.vertical = 1, 
+           label.fill.horizontal = 1, edge.color = "black", groups = b5_groups, 
+           color = rev(t(RColorBrewer::brewer.pal(9, "Purples")[seq(1,7,2)])),
+           legend = F, DoNotPlot = TRUE, mar = c(4,4,4,4))
+  #change lines to dashed
+  plot$graphAttributes$Edges$lty[plot$Edgelist$weight < 0] <- 2
+  #change line colors
+  plot$graphAttributes$Edges$color <-
+    ifelse(abs(plot$Edgelist$weight) <.1, edge_colors[1],
+    ifelse(abs(plot$Edgelist$weight) <.2, edge_colors[2], edge_colors[3]))
+  # change labels of dark nodes to white
+  dark_colors <- c("#9E9AC8", "#807DBA", "#6A51A3", "#54278F", "#3F007D")
+  plot$graphAttributes$Nodes$label.color[plot$graphAttributes$Nodes$color %in% dark_colors] <- "white"
+  #change variable names
+  plot$graphAttributes$Nodes$labels <- gsub("_", "\n", names(plot$graphAttributes$Nodes$labels))
+  return(plot)
+}
+
+gVAR_fit <- gVAR_fit %>%
+  mutate(temp_plot = pmap(list(gVAR_fit, SID, wave, "Temporal"),
+                          possibly(idio_plot_fun, NA_real_)),
+         contemp_plot = pmap(list(gVAR_fit, SID, wave, "Contemporaneous"),
+                          possibly(idio_plot_fun, NA_real_)))
+```
+
+Below we will print the two example subjects (10008 = 1; 10240 = 2) from the manuscript.
+
+#### Subject 10008
+```{r, results='hide'}
+par(mfrow = c(2,2))
+gVAR_fit %>% filter(SID %in% c("10008")) %>% 
+  mutate(map(temp_plot, plot), map(contemp_plot, plot))
+```
+
+#### Subject 10240
+```{r, results='hide'}
+par(mfrow = c(2,2))
+gVAR_fit %>% filter(SID %in% c("10240")) %>% 
+  mutate(map(temp_plot, plot), map(contemp_plot, plot))
+```
+
+
+### Tables {.tabset}
+We might also want to see a table of the individual edge weights over time, so below we produce a table for both contemporaneous and temporal network edges. 
+
+#### Temporal
+```{r, results= 'asis'}
+gVAR_fit %>% filter(SID %in% c("10008", "10240")) %>%
+  unnest(temp) %>% select(SID, wave, from, to, weight) %>%
+  mutate_at(vars(from,to), funs(str_replace(., "_", " "))) %>%
+  unite(temp, SID, wave, sep = ".") %>%
+  spread(key = temp, value = weight) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2,
+        col.names = c("From", "To", "W1", "W2", "W1", "W2"),
+        align = c("l", "l", rep("c", 4)),
+        caption = "Temporal Networks") %>%
+  add_header_above(c(" " = 2, "S1" = 2,"S2" = 2)) %>%
+  kable_styling(bootstrap_options = c("striped"), full_width = T) %>%
+  scroll_box(width = "750px", height = "400px")
+```
+
+#### Contemporaneous
+```{r, results = 'asis'}
+gVAR_fit %>% filter(SID %in% c("10008", "10240")) %>%
+  unnest(contemp) %>% select(SID, wave, Var1, Var2, weight) %>%
+  unite(temp, SID, wave, sep = ".") %>%
+  spread(key = temp, value = weight) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2,
+        col.names = c("From", "To", "W1", "W2", "W1", "W2"),
+        align = c("l", "l", rep("c", 4)),
+        caption = "Contemporaneous Networks") %>%
+  add_header_above(c(" " = 2, "S1" = 2,"S2" = 2)) %>%
+  kable_styling(bootstrap_options = c("striped"),full_width = T) %>%
+  scroll_box(width = "750px", height = "400px")
+```
+
+
+
+## Centrality: Which Indicators Are Most Influential in Idiographic Personality Networks? 
+As with between-person effects, we can calculate centrality for individuals. 
+```{r, results = 'hide', message = FALSE, eval = T}
+# create function to save both centrality measure and variable names to a data frame.
+centrality_fun <- function(x) {
+  data <- x %>%
+    select(from, to, weight) %>%
+    mutate(weight = as.numeric(weight))
+  centrality <- centrality_auto(data.frame(data))
+  df <- centrality$node.centrality %>% data.frame() %>%
+    mutate(var = rownames(.))
+}
+
+contemp_cen_fun <- function(x){
+  centrality <- centrality_auto(x)$node.centrality %>% 
+    data.frame() %>%
+    mutate(var = rownames(.))
+  return(centrality)
+}
+
+####### PDC's #######
+# calculate centrality for each subject for each wave and save them to a list #
+gVAR_fit <- gVAR_fit %>%
+  mutate(temp_centrality    = map(temp,        possibly(centrality_fun, NA_real_)),
+         contemp_centrality = map(contemp_mat, possibly(contemp_cen_fun, NA_real_)))
+
+# save data for web app
+gVAR_data <- gVAR_fit %>% 
+  select(SID, wave, gVAR_fit, temp_centrality, contemp_centrality) %>%
+  mutate(PDC = map(gVAR_fit, ~.$PDC),
+         PCC = map(gVAR_fit, ~.$PCC)) %>%
+  select(-gVAR_fit)
+save(gVAR_data, file = "~/Box Sync/network/PAIRS/consistency/R/app_data.RData")
+
+# save all temporal centrality to a long format df
+(temp_centrality <- gVAR_fit %>%
+  unnest(temp_centrality, .drop = T) %>%
+  select(-Degree) %>%
+  mutate(type = "Temporal"))
+
+# save all contemporaneous centrality to a long format df
+(contemp_centrality <- gVAR_fit %>%
+  unnest(contemp_centrality, .drop = T) %>%
+  select(-Degree) %>%
+  mutate(type = "Contemporaneous"))
+```
+
+
+### Centrality Plots (Figure 6)
+```{r}
+# function to create individual level centrality plots for each person
+centrality_Plot_fun <- function(x){
+  centrality  %>%
+    filter(SID %in% x &  grepl("trength", measure)) %>%
+    arrange(measure, wave) %>%
+    ggplot(aes(x = var, y = z, group = wave))+
+      geom_line(aes(linetype = wave), color = "black", size = .3) + 
+      geom_point(aes(shape = wave), size = 2) + 
+      labs(x = NULL, y = "z-score", linetype = "Wave", shape = "Wave") +
+      scale_y_continuous(limits = c(-3,3), breaks = seq(-3,3,1)) + 
+      geom_hline(aes(yintercept = 0)) + 
+      coord_flip() + 
+      facet_grid(SID~type + measure) + 
+      theme_classic()+ 
+      theme(axis.text = element_text(face = "bold"),
+            axis.title = element_text(face = "bold"),
+            legend.title = element_text(face = "bold"),
+            legend.position = "bottom")
+}
+
+centrality <- temp_centrality %>%
+  gather(key = measure, value = centrality, 
+         Betweenness:OutStrength) %>%
+  group_by(SID, wave, measure) %>%
+  mutate(z = scale(centrality)) %>%
+  ungroup() %>%
+  full_join(contemp_centrality %>%
+    gather(key = measure, value = centrality, 
+           Betweenness:Strength) %>%
+    group_by(SID, wave, measure) %>%
+    mutate(z = scale(centrality)) %>%
+    ungroup())
+
+# generate sample plot for subjects 1 & 2
+centrality %>% 
+    filter(SID %in% c("10008", "10204") &  grepl("trength", measure)) %>%
+    mutate(SID = recode(SID, `10008` = "1", `10204` = "2")) %>%
+    arrange(measure, wave) %>%
+    ggplot(aes(x = var, y = z, group = wave))+
+      geom_line(aes(linetype = wave), color = "black", size = .3) + 
+      geom_point(aes(shape = wave), size = 2) + 
+      labs(x = NULL, y = "z-score", linetype = "Wave", shape = "Wave") +
+      scale_y_continuous(limits = c(-3,3), breaks = seq(-3,3,1)) + 
+      geom_hline(aes(yintercept = 0)) + 
+      coord_flip() + 
+      facet_grid(SID~type + measure) + 
+      theme_classic()+ 
+      theme(axis.text = element_text(face = "bold"),
+            axis.title = element_text(face = "bold"),
+            legend.title = element_text(face = "bold"),
+            legend.position = "bottom")
+
+ggsave(sprintf("%s/results/plots/centrality_plot_1+2.png", data_path), width = 5, height = 5)
+```
+
+# Question 2: Is there longitudinal consistency in idiographic networks?
+## Edge Weight Consistency
+### Variable Centered: Rank-Order Consistency {.tabset}
+```{r, message = FALSE, warning = FALSE, results = 'asis'}
+cor_fun <- function(x){
+    results <- cor(x$`1`, x$`2`, use = "pairwise", method = "spearman")
+}
+
+# short fun to convert contempaneous results to long format df
+# different from previous in that we explicitly want to keep NAs
+contemp_long_fun_na <- function(fit){
+  PCC <- fit$PCC
+  PCC <- PCC[,order(colnames(PCC))]
+  PCC <- PCC[order(rownames(PCC)),]
+  PCC[lower.tri(PCC, diag = T)] <- NA
+  vars <- rownames(PCC)
+  PCC.long <- tbl_df(PCC) %>%
+    mutate(Var1 = vars,
+           type = "Contemporaneous") %>%
+    gather(key = Var2, value = weight, A_kind:N_worried) %>%
+    unite(var, Var1, Var2, sep = ".", remove = F)
+}
+
+gVAR_fit <- gVAR_fit %>% 
+  mutate(contemp_long_na = map(gVAR_fit, possibly(contemp_long_fun_na, NA_real_)))
+
+# assign ranks to edges and caluclate rank-order correlations
+contemp_cors_long <- contemp_long %>%
+  filter(SID %in% w1w2_subs) %>%
+  group_by(wave, Var1, Var2) %>%
+  mutate(rank = min_rank(desc(weight))) %>%
+  ungroup() %>%
+  select(SID, wave, Var1, Var2, type, rank) %>%
+  spread(key = wave, value = rank) %>%
+  group_by(Var1, Var2) %>%
+  nest() %>%
+  mutate(r = map(data, cor_fun))  %>%
+  unnest(r, .drop = T) %>% 
+  mutate(measure = "Rank-Order", Type = "Contemporaneous")
+
+temp_cors_long <- temp_long %>%
+  filter(SID %in% w1w2_subs) %>%
+  group_by(wave, from, to) %>%
+  mutate(rank = dense_rank(desc(weight))) %>%
+  ungroup() %>%
+  select(SID, wave, from, to , rank) %>%
+  spread(key = wave, value = rank) %>%
+  group_by(from, to) %>%
+  nest() %>%
+  mutate(r = map(data, cor_fun)) %>%
+  unnest(r, .drop = T) %>%
+  mutate(measure = "Rank-Order", Type = "Temporal")
+```
+
+#### Table
+```{r, results = 'asis'}
+contemp_cors_long %>%
+  full_join(temp_cors_long %>% 
+  group_by(Type, measure)) %>%
+  group_by(Type, measure) %>%
+  summarize(mean = meanSD_r2z2r(r)[1],
+            sd = meanSD_r2z2r(r)[2], 
+            range = diff(range(r)),
+            median = median(r)) %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of Contemporaneous Edge Weight Rank-Order Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T) 
+```
+
+#### Plot
+And create heat maps showing the individual temporal and contemporaneous rank-order correlations (Figure 7)
+```{r}
+# make heat maps of both contemporaneous and temporal rank order cors
+## figure 6 in manuscript ##
+contemp_cors_long %>%
+  rename(from = Var1, to = Var2) %>%
+  full_join(temp_cors_long) %>%
+  mutate(from = factor(from, levels = sort(unique(from))),
+         to = factor(to, levels = rev(sort(unique(to))))) %>%
+  ggplot(aes(x = from, y = to, fill = r)) + 
+  geom_raster() + 
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-.5,.5), space = "Lab", 
+   name="Edge Consistency\nCorrelations") +  
+  geom_text(aes(label = round(r,2))) +
+  facet_grid(.~Type) + 
+  labs(x = "From", y = "To") + 
+  theme_classic() +
+  theme(strip.text = element_text(face = "bold"),
+        axis.text = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+        legend.title = element_text(face = "bold"),
+        legend.text = element_text(face = "bold"),
+        legend.position = "bottom")
+ggsave(file = sprintf("%s/results/plots/Rank_Edge_Cors_heatmap.png", data_path), width = 9, height = 6)
+```
+
+### Person-Centered: Ipsative Consistency {.tabset}
+#### Contemporaneous
+```{r, message = FALSE, warning = FALSE}
+(ip_contemp_cors <- contemp_long %>%
+  select(SID, wave, Var1:weight) %>%
+  group_by(SID, wave) %>%
+  mutate(weight.c = as.numeric(scale(weight, scale = F))) %>%
+  ungroup() %>%
+  arrange(wave, SID, Var1, Var2) %>%
+  select(-weight) %>%
+  spread(wave, weight.c) %>%
+  group_by(SID) %>%
+  summarize(cors = cor(`1`, `2`, use = "pairwise.complete.obs")) %>%
+  filter(!is.na(cors)) %>%
+  mutate(type = "Contemporaneous"))
+```
+
+#### Temporal
+```{r}
+(ip_temp_cors <- temp_long %>%
+  select(SID, wave, from:weight) %>%
+  group_by(SID, wave) %>%
+  mutate(weight.c = as.numeric(scale(weight, center = T, scale = F))) %>%
+  ungroup() %>%
+  select(-weight) %>%
+  spread(wave, weight.c) %>%
+  group_by(SID) %>%
+  summarize(cors = cor(`1`, `2`, use = "pairwise.complete.obs")) %>%
+  filter(!is.na(cors)) %>%
+  mutate(type = "Temporal"))
+```
+
+## Centrality Consistency
+### Variable Centered: Rank-Order Consistency {.tabset}
+#### Contemporaneous  
+```{r, results = 'asis'}
+# convert centrality to ranks for each measure and 
+# calculate rank-order correlations
+contemp_centrality_rank <- tbl_df(contemp_centrality) %>%
+  filter(SID %in% w1w2_subs) %>%
+  gather(key = measure, value = Centrality, Betweenness:Strength) %>%
+  group_by(measure, var, type, wave) %>%
+  mutate(rank = min_rank(desc(Centrality))) %>%
+  ungroup() %>%
+  select(-count, -Centrality) %>%
+  spread(key = wave, value = rank)  %>%
+  group_by(measure, var) %>%
+  summarize(r = cor(`1`, `2`, use = "pairwise", method = "spearman"))
+
+contemp_centrality_rank %>%
+  group_by(measure) %>%
+  summarize(m = meanSD_r2z2r(r)[1], 
+            sd = meanSD_r2z2r(r)[2], 
+            min = min(r), 
+            max = max(r),
+            Type = "Contemporaneous") %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of Contemporaneous Centrality Rank-Order Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+#### Temporal
+```{r, results = 'asis'}
+# convert centrality to ranks for each measure and 
+# calculate rank-order correlations
+temp_centrality_rank <- tbl_df(temp_centrality) %>%
+  filter(SID %in% w1w2_subs) %>%
+  gather(key = measure, value = Centrality, Betweenness:OutStrength) %>%
+  group_by(measure, var, type, wave) %>%
+  mutate(rank = min_rank(desc(Centrality))) %>%
+  ungroup() %>%
+  gather(key = measure2, value = value, Centrality, rank) %>%
+  unite(measure3, measure, measure2, remove = F, sep = ".")  %>%
+  select(-count) %>%
+  spread(key = wave, value = value) %>%
+  filter(measure2 == "rank" & grepl("trength", measure)) %>%
+  group_by(var, type, measure) %>%
+  summarize(r = cor(`1`, `2`, use = "pairwise"))
+
+temp_centrality_rank %>% 
+  group_by(measure) %>%
+  summarize(mean = meanSD_r2z2r(r)[1],
+            sd = meanSD_r2z2r(r)[2], 
+            min = min(r, na.rm = T),
+            max = max(r, na.rm = T),
+            Type = "Temporal") %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of Temporal Centrality Rank-Order Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+
+### Person-Centered: Profile Consistency {.tabset}
+#### Contemporaneous
+```{r}
+# ipsative consistency (profile correlations for each person)
+(ip_contemp_cent_cors <- contemp_centrality %>%
+  filter(SID %in% w1w2_subs) %>%
+  gather(key = measure, value = Centrality, Betweenness:Strength) %>%
+  select(-count) %>%
+  spread(key = wave, value = Centrality) %>%
+  arrange(SID, type, measure, var) %>%
+  group_by(SID, type, measure) %>%
+  nest() %>%
+  mutate(r = map(data, ~cor(.$`1`, .$`2`, use = "pairwise"))) %>%
+  unnest(r, .drop = T))
+```
+
+
+#### Temporal
+```{r}
+# ipsative consistency (profile correlations for each person)
+(ip_temp_cent_cors <- tbl_df(temp_centrality) %>%
+  select(-count) %>%
+  filter(SID %in% w1w2_subs) %>%
+  gather(key = measure, value = Centrality, Betweenness:OutStrength) %>%
+  spread(key = wave, value = Centrality) %>%
+  arrange(SID, type, measure, var) %>%
+  group_by(SID, type, measure) %>%
+  nest() %>%
+  mutate(r = map(data, ~cor(.$`1`, .$`2`, use = "pairwise"))) %>%
+  unnest(r, .drop = T))
+```
+
+## Disentangling Consistency from Reliability: Split-Half Networks {.tabset}  
+### Person-Centered: Split-Half Profile Consistency 
+To test the reliability of the networks, we split each person's responses in half and calculate a network of eah and then compare the two using profile correlations.  
+
+```{r, eval = F}
+##Split Half Networks (Reliability Check)
+# To test the reliability of the networks, we split each person's responses in half and
+# calculate a network of eah and then compare the two using profile correlations.  
+
+gVAR_split_fun <- function(sid, wave, spl_type, spl_num, row_num){
+  df <- switch(as.numeric(wave), w1, w2) %>%
+    filter(SID == sid)
+  if(spl_type == "half"){
+    # first havlf v. second half
+    df <- df %>% 
+      mutate(split = ifelse(count %% 2 == 0, count/2, count%/%2),
+             split = ifelse(beep_seq <= split, 1, 2)) %>%
+      filter(split == spl_num)
+  } else {
+    # odds v. evens
+    df <- df %>%
+      mutate(split = ifelse(beep_seq %in% seq(1,unique(count),2), 1, 2)) %>%
+      filter(split == spl_num)
+  }
+  df <- df %>%
+    group_by(SID, count, wave) %>% 
+    nest() %>%
+    mutate(data2 = map(data, jitter_fun)) %>%
+    unnest(data2, .drop = T)
+  print(row_num)
+  gVAR_fun(df, sid, wave)
+}
+
+gVAR_fit_split <- unique(expand.grid(stringsAsFactors = F,
+  SID = unique(w1$SID), wave = "1", 
+  split_type = c("half", "every-other"), split_num = c(1,2)
+  ) %>%
+  full_join(expand.grid(stringsAsFactors = F,
+    SID = unique(w2$SID), wave = "2",
+    split_type = c("half", "every-other"), split_num = c(1,2)
+  )) %>%
+  full_join(unique(unique(w1 %>% select(SID, count, wave)) %>%
+    full_join(unique(w2 %>% select(SID, count, wave))))) %>%
+  filter(count >= 20) %>%
+  tbl_df() %>%
+  arrange(wave, SID)) %>%
+  filter(!(wave == "1" & SID %in% c("10020", "10036", "10037", "10041", "10116",
+            "10160", "10187", "10273", "10371", "10428", "10463", "10512"))) %>%
+  filter(!(wave == "2" & SID %in% c("10161", "10204", "10248", "10280"))) %>%
+  mutate(row = row_number(),
+         gVAR_fit = pmap(list(SID, wave, split_type, split_num, row), 
+                         possibly(gVAR_split_fun, NA_real_)))
+save(gVAR_fit_split, file = "~/Box Sync/network/PAIRS/consistency/results/split_half_gVAR_fit.RData")
+```
+
+
+```{r, results = 'asis'}
+# run the same extraction procedure as above for split-half networks
+##split half networks
+load("~/Box Sync/network/PAIRS/consistency/results/split_half_gVAR_fit.RData")
+gVAR_fit_split <- gVAR_fit_split %>%
+  filter(!is.na(gVAR_fit)) %>%
+  group_by(SID, wave, split_type) %>%
+  mutate(n = n()) %>%
+  # we can only assess individuals for whom we could estimate a network for each
+  # half of their data within a wave
+  filter(n == 2) %>%
+  mutate(beta = map2(gVAR_fit, SID, possibly(temp_fun, NA_real_)),
+         kappa_mat = map(gVAR_fit, possibly(contemp_mat_fun, NA_real_)),
+         kappa = map(gVAR_fit, possibly(contemp_long_fun, NA_real_)))
+
+split_beta_long <- gVAR_fit_split %>% filter(!is.na(beta)) %>% unnest(beta)
+split_kappa_long <- gVAR_fit_split %>% filter(!is.na(kappa)) %>% unnest(kappa)
+
+# extract PCC information
+split_PCC_fit <- gVAR_fit_split$kappa_mat; names(split_PCC_fit) <- gVAR_fit_split$SID
+
+# pull cross-wave temporal and contemporaneous effects
+# and calculate correlations across waves
+ip_split_cors <- split_beta_long %>% 
+  ungroup() %>%
+  mutate(type = "Temporal") %>%
+  full_join(split_kappa_long %>%  ungroup() %>% select(-var) %>%
+              mutate(type = "Contemporaneous") %>% 
+              rename(from = Var1, to = Var2)) %>%
+  group_by(SID, type, wave, split_type, split_num) %>%
+  mutate(value.c = as.numeric(scale(weight, center = T, scale = F))) %>%
+  ungroup() %>%
+  arrange(wave, type, split_type, split_num, SID, from, to) %>%
+  select(-weight, -n, -count, -row) %>%
+  # unite(split, wave, split_num) %>%
+  spread(split_num, value.c) %>%
+  group_by(SID, wave, type, split_type) %>%
+  summarize(r = cor(`1`, `2`, use = "pairwise.complete.obs"))
+
+# descriptives
+ip_split_cors %>%
+  group_by(wave, type, split_type) %>%
+  summarise(M = mean(r, na.rm = T),
+            sd = sd(r, na.rm = T),
+            min = min(r, na.rm = T),
+            max = max(r, na.rm = T)) %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of Network Reliability") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+### Split-Half and Every-Other Reliability (Figures 4 \& 5)
+```{r}  
+plot_fun <- function(df, type){
+  plot <- df %>%
+    mutate(split_type = dplyr::recode(split_type, `every-other` = "Odd-Even",
+              `half` = "Split-Half")) %>%
+  ggplot(aes(x = r)) +
+  geom_histogram(aes(y = ..density..), color = "black", fill = "gray") +
+  scale_x_continuous(limits = c(-1,1), breaks = seq(-1,1,.5)) +
+  labs(x = sprintf("%s Ipsative Correlations", type), y = "Density") +
+  facet_grid(wave~split_type) +
+  theme_classic() +
+  theme(axis.text = element_text(face = "bold", size = rel(1.2)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        strip.text = element_text(face = "bold", size = rel(1.2)),
+        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5))
+  ggsave(sprintf("%s/results/plots/%s_split_reliability.png", data_path, type), 
+         width = 6, height = 4)
+  print(plot)
+  return(plot)
+}
+
+# plot histograms of ipsative temporal and contemporaneous consistency
+ip_split_plot <- ip_split_cors %>%
+  ungroup() %>%
+  mutate(wave = sprintf("Wave %s", wave)) %>% 
+  group_by(type) %>%
+  nest() %>%
+  mutate(plot = map2(data, type, plot_fun))
+```
+
+
+# Question 3: Are there Individual Differences in Idiographic Network Consistency?  
+## Congruence with the Reference Profile
+```{r}
+load(sprintf("%s/R/PAIRS_networks_pers_FINAL.RData", data_path))
+profile_cor_fun <- function(id_list, wave, type){
+  if(type == "Temporal"){
+    id_list <- id_list %>% select(from, to, type, weight) %>% arrange(from, to)
+    if(wave == "1"){pop_list <- temporal_effects_w1} else{pop_list <- temporal_effects_w2}
+    pop_list <- pop_list %>% select(from, to, fixed) %>% arrange(from, to)
+    id_list %>% full_join(pop_list) %>% summarize(r = cor(fixed, weight, use = "pairwise"))}
+  else{
+    id_list <- id_list %>% select(Var1, Var2, weight, type) %>% arrange(Var1, Var2)
+    if(wave == "1"){pop_list <- contemp_eff_w1} else{pop_list <- contemp_eff_w2}
+    pop_list <- pop_list %>% select(Var1, Var2, weight, type) %>% arrange(Var1, Var1) %>% rename(pcor = weight)
+    id_list %>% full_join(pop_list) %>% group_by(type) %>% summarize(r = cor(pcor, weight, use = "pairwise"))}}
+
+gVAR_fit <- gVAR_fit %>%
+  mutate(temp_procor = map2(temp, wave, ~profile_cor_fun(.x, .y, "Temporal")),
+         contemp_procor = map2(contemp, wave, ~profile_cor_fun(.x, .y, "Contemporaneous")))
+
+(refCong_procors <- gVAR_fit %>% unnest(temp_procor, .drop = T) %>%
+  mutate(type = "Temporal") %>%
+  full_join(unnest(gVAR_fit, contemp_procor, .drop = T) %>%
+              mutate(type = "Contemporaneous")))
+```
+
+## Individual Differences in Network Edge Consistency (Figure 8) {.tabset}  
+To look at individual differences in Network consistency, we user a Fisher r to z transformation to compute the average and standard deviation. We also plot a histogram of individual ipsative profiles to show the full distribution of consistency.  
+### Plot
+```{r}
+ip_cors <- (ip_temp_cors) %>% full_join(ip_contemp_cors)
+
+ggplot(ip_cors, aes(x = cors)) + 
+  geom_histogram(color = "black", fill = "gray") +
+  scale_x_continuous(limits = c(-1,1), breaks = seq(-1,1,.5)) +
+  labs(x = "Ipsative Correlations", y = "Frequency",
+       title = "Ipsative Network Consistency") +
+  facet_grid(.~type) +
+  theme_classic() +
+  theme(axis.text = element_text(face = "bold", size = rel(1.2)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        strip.text = element_text(face = "bold", size = rel(1.2)),
+        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5))
+ggsave(sprintf("%s/results/plots/ipsative_cor.png", data_path), 
+       width  = 6, height = 3)
+```
+
+### Table
+```{r, results = 'asis'}
+ip_cors %>%
+  group_by(type) %>%
+  summarize(mean_cor = meanSD_r2z2r(cors)[1],
+            sd_cor = meanSD_r2z2r(cors)[2], 
+            range = diff(range(cors, na.rm = T)),
+            median = median(cors, na.rm = T)) %>%
+  kable(., "html", escape = F, booktabs = T, digits = 2,
+        col.names = c("Type", "Mean", "SD", "Range", "Median"))  %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+## Individual Differences in Centrality Consistency (Figure 9) {.tabset}  
+
+### Plot  
+As with ipsative edge weight consistency, we can look at the average consistency of profiles of centrality measures as well as the distribution of ipsative consistency across the population.  
+```{r}
+ip_cent_cors <- ip_temp_cent_cors %>% 
+  full_join(ip_contemp_cent_cors)
+
+ip_temp_cent_cors %>%
+  full_join(ip_contemp_cent_cors ) %>%
+  filter(grepl("trength", measure)) %>%
+  ggplot(aes(x = r))+
+  geom_histogram(binwidth = .1, color = "black", fill = "gray")+
+  labs(y = "Frequency", x = "Profile Correlation", 
+       title = "Contemporaneous\nProfile Correlations") + 
+  facet_wrap(~type + measure, nrow = 1) + 
+  theme_bw() + 
+  theme(plot.title = element_text(hjust = .5))
+```
+
+### Table
+```{r, results = 'asis'}
+ip_temp_cent_cors %>%
+  full_join(ip_contemp_cent_cors) %>%
+  group_by(type, measure) %>%
+  summarize(mean = meanSD_r2z2r(r)[1],
+            sd = meanSD_r2z2r(r)[2], 
+            min = min(r,na.rm = T),
+            max = max(r,na.rm = T),
+            range = diff(range(r, na.rm = T))) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2,
+        caption = "Descriptives of Ipsative Centrality Correlations") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+
+# Footnotes
+## Footnote 1: Population Level Analyses
+Bringmann et al. (2013) developed a technique for assessing ESM data using a network approach. This approach utilizes a series of univariate multilvel vector autoregressive models (mlVAR) in which all items are entered simultaneously as predictors and individually as outcomes. Below we run the models for the nine personality items at each wave. The `mlVAR()` function automatically within-centers data, so we will enter the raw data into the models. Because of the number of observations we have for each usbject we use a lag 1 factorization. Because we have more than 6 predictors, we use orthogonal estimation of temporal and contemporaneous effects.  
+
+### Univariate Multilevel Autoregressive Models (footnote 1)
+
+```{r, eval = F, results = 'hide'}
+# raw data #
+# not affected by using only complete cases of the data #
+fit1_w1 <-   
+  mlVAR(w1, 
+        vars = colnames(w1)[6:14], #4:18
+        idvar = "SID", 
+        lags = 1,
+        #dayvar = "day", 
+        beepvar = "beep_seq",
+        temporal = "orthogonal",
+        contemporaneous = "orthogonal",
+        verbose = TRUE, 
+        scale = FALSE)
+
+# raw data #
+fit1_w2 <- 
+  mlVAR(w2, 
+        vars = colnames(w2)[5:13], #4:16
+        idvar = "SID", 
+        lags = 1,
+        #dayvar = "day", 
+        beepvar = "beep_seq",
+        #covar = "Age",
+        temporal = "orthogonal",
+        contemporaneous = "orthogonal",
+        verbose = TRUE,
+        scale = FALSE)
+
+#model summary
+sum_fit1_w1        <- summary(fit1_w1)
+sum_fit1_w2        <- summary(fit1_w2)
+```
+
+### Network structure. 
+The figure below presents the results of the four mlVAR models (1 temporal and 1 contemporaneous network for each wave). For the purposes of interpretation and comparison, the structure of the networks for the second wave have been constrained to match the first wave and only significant edges are displayed. 
+
+#### Plots {.tabset}
+
+##### Fixed Effects
+```{r, fig.width=8, fig.height=8}
+# The graphs below show the raw, directed network the estimated, directed network 
+# using a univariate multilevel vector autoregressive models as (1) temporal and 
+# (2) contemporaneous netowrks. Note that the code for the plot may appear complicated 
+# at first glance but just largely deals with aesthetics of the graphs.  
+b5_groups <- list(A = c(1,7), E = c(2, 6), C = c(3,8), N = c(4,5,9))
+plot_fun <- function(mlVAR.obj, type, wave, sd = FALSE, Layout = "spring", 
+                     noplot = TRUE, Nosig = 'hide'){
+  plot <- plot(mlVAR.obj, type, layout = Layout, #labels = varnames2, 
+               groups = b5_groups, nonsig = Nosig, curve = -1, legend = FALSE, 
+               details = FALSE, mar = c(5,5,5,5), border.color = "black", 
+               border.width = 2, title = sprintf("%s\nWave%s", str_to_title(type), wave),
+               loop = .7, node.width = 1.6, edge.width = 1, asize = 5, label.font = 2,
+               label.fill.vertical = 1, label.fill.horizontal = 1, edge.color = "blue", 
+               color = t(brewer.pal(9, "Purples")[seq(1,7,2)]), DoNotPlot = noplot, SD = sd)
+  # change negative edges to dashed
+  plot$graphAttributes$Edges$lty[plot$Edgelist$weight < 0] <- 2
+  # change edge colors based on weights
+  if(sd == FALSE){
+    if(type == "temporal"){
+      plot$graphAttributes$Edges$color <-
+      ifelse(plot$Edgelist$weight <.02, "thistle2",
+      ifelse(plot$Edgelist$weight <.04, "mediumorchid", "midnightblue"))
+      } else {
+      plot$graphAttributes$Edges$color <- 
+      ifelse(abs(plot$Edgelist$weight) < .1, "thistle2",
+      ifelse(abs(plot$Edgelist$weight) < .3, "mediumorchid", "midnightblue"))}
+  }
+  #change variable names
+  plot$graphAttributes$Nodes$labels <- str_replace(plot$graphAttributes$Nodes$labels, "_", "\n")
+  # change labels of dark colored nodes to white
+  dark_colors <- c("#9E9AC8", "#807DBA", "#6A51A3", "#54278F", "#3F007D")
+  plot$graphAttributes$Nodes$label.color[plot$graphAttributes$Nodes$color %in% dark_colors] <- "white"
+  return(plot)
+}
+
+# run but don't generate plots
+plot_w1 <- plot_fun(fit1_w1, "temporal", "1")
+plot_w1_contemp <- plot_fun(fit1_w1, "contemporaneous", "1")
+plot_w2 <- plot_fun(fit1_w2, "temporal", "2", sd = FALSE, Layout = plot_w1$layout)
+plot_w2_contemp <- plot_fun(fit1_w2, "contemporaneous", "2", Layout = plot_w1_contemp$layout)
+
+# generate modified plots
+par(mfrow = c(2,2))
+plot(plot_w1)
+plot(plot_w1_contemp)
+plot(plot_w2)
+plot(plot_w2_contemp)
+```
+
+##### Individual Differences
+```{r, fig.width=8, fig.height=8}
+# generate sd plots
+par(mfrow = c(2,2))
+plot(plot_fun(fit1_w1, "temporal", "1", sd = TRUE, Layout = plot_w1$layout, noplot = TRUE))
+plot(plot_fun(fit1_w1, "contemporaneous", "1", sd = TRUE, Layout = plot_w1_contemp$layout, noplot = TRUE, Nosig = 'show'))
+plot(plot_fun(fit1_w2, "temporal", "2", sd = TRUE, Layout = plot_w1$layout, noplot = TRUE))
+plot(plot_fun(fit1_w2, "contemporaneous", "2", sd = TRUE, Layout = plot_w1_contemp$layout, noplot = TRUE, Nosig = 'show'))
+```
+
+#### Centrality {.tabset}
+
+In addition, we assessed the local network structure using centrality. Specifically, we calculated the strength centrality for temporal and contemporaneous networks at each wave separately. Because the temporal network is directed, we calculated both in strength and out strength for each node. We can use both centrality indices and edges to examine local properties of different nodes across both waves. In the population networks, central nodes represent consensus - behavioral patterns that were shared across people - while peripheral nodes represent idiosyncrasies - behavioral patterns that differed across people. For comparison across waves, we z-transformed all results for display in the figure below.  
+Centrality refers to the relative importance of a focal node to the structure and dynamics of a network. In other words, it provides information about a node’s role in the context of other nodes.  
+
+```{r, message = FALSE, warning = FALSE, results = 'hide'}
+# save the temporal results to data frames
+temporal_effects_w1 <- tbl_df(sum_fit1_w1$temporal) %>% mutate(wave = "1")
+temporal_effects_w2 <- tbl_df(sum_fit1_w2$temporal) %>% mutate(wave = "2")
+
+vars <- names(fit1_w1$output)
+
+# save the contemporaneous results to matrices
+contemp_effects_w1 <- fit1_w1$results$Theta$pcor$mean
+contemp_effects_w2 <- fit1_w2$results$Theta$pcor$mean
+
+colnames(contemp_effects_w1) <- vars; rownames(contemp_effects_w1) <- vars
+colnames(contemp_effects_w2) <- vars; rownames(contemp_effects_w2) <- vars
+
+# function to turn contemporaneous matrices to long format
+contemp_long_fun <- function(fit, Wave){
+  fit <- fit[,order(colnames(fit))]
+  fit <- fit[order(rownames(fit)),]
+  fit[lower.tri(fit, diag = T)] <- NA
+  fit.long <- tbl_df(fit) %>%
+    mutate(Var1 = colnames(.),
+           type = "Contemporaneous", wave = Wave) %>%
+    gather(key = Var2, value = weight, A_kind:N_worried) %>%
+    filter(!is.na(weight)) %>%
+    unite(var, Var1, Var2, sep = ".", remove = F)
+}
+
+# create long format contemporaneous results
+contemp_eff_w1 <- contemp_long_fun(contemp_effects_w1, "1")
+contemp_eff_w2 <- contemp_long_fun(contemp_effects_w2, "2")
+```
+
+```{r, message = FALSE, warning = FALSE, results = 'hide'}
+### Run Centrality Analyses ###
+#temporal
+#raw
+temporal_centrality_w1      <- centrality_auto(sum_fit1_w1$temporal[,c(1,2,4)])
+temporal_centrality_w2      <- centrality_auto(sum_fit1_w2$temporal[,c(1,2,4)])
+
+#contemporaneous
+#raw
+contemporaneous_centrality_w1      <- centrality_auto(contemp_effects_w1)
+contemporaneous_centrality_w2      <- centrality_auto(contemp_effects_w2)
+```
+
+```{r, results = 'hide'}
+# save centrality results into data frame #
+# temporal #
+temp_cent <- temporal_centrality_w1$node.centrality %>% data.frame() %>%
+  mutate(wave = "1", type = "Temporal", var = rownames(.)) %>%
+  full_join(temporal_centrality_w2$node.centrality %>% data.frame() %>%
+  mutate(wave = "2", type = "Temporal", var = rownames(.)))
+
+# contemporaneous #
+contemp_cent <- contemporaneous_centrality_w1$node.centrality %>%
+  mutate(wave = "1", type = "Contemporaneous", var = rownames(.)) %>%
+  full_join((contemporaneous_centrality_w2$node.centrality %>%
+  mutate(wave = "2", type = "Contemporaneous", var = rownames(.))))
+```
+
+##### Centrality Plots
+```{r}
+# Temporal #
+# wrangle to long format and calculate standardized indices #
+temp_cent_long <- temp_cent %>%
+  gather(key = Measure, value = Centrality, Betweenness:OutStrength) %>%
+  group_by(wave, Measure) %>%
+  mutate(z = as.numeric(scale(Centrality)))
+
+# Contemporaneous #
+# wrangle to long format and calculate standardized indices #
+contemp_cent_long <- contemp_cent %>%
+  gather(key = Measure, value = Centrality, Betweenness:Strength) %>%
+  group_by(wave, Measure) %>%
+  mutate(z = as.numeric(scale(Centrality)))
+
+# create combined data frame of temporal and contemporaneous effects #
+combined_centrality <- temp_cent_long %>% full_join(contemp_cent_long) %>% ungroup()
+
+combined_centrality %>%
+  filter(grepl("trength", Measure)) %>%
+  mutate(type = factor(type, levels = rev(sort(unique(type))))) %>%
+  ggplot(aes(x = var, y = z, group = wave))+
+  geom_line(aes(linetype = wave), color = "black", size = .3) + 
+  geom_point(aes(shape = wave), size = 2) + 
+  scale_y_continuous(limits = c(-3,3), breaks = seq(-3,3,1)) + 
+  geom_hline(aes(yintercept = 0)) + 
+  labs(x = NULL, y = "z-score") +
+  coord_flip() + 
+  facet_wrap(~type + Measure, nrow = 1) + 
+  theme_classic()+ 
+  theme(axis.text = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"),
+        legend.position = "bottom")#c(.87, .25))
+ggsave(sprintf("%s/results/plots/centrality_plot.png", data_path), width = 5, height = 3.5)
+```
+
+##### Table Temporal
+```{r, results = 'asis'}
+# wrangle to wide format for tabling #
+temp_cent %>%
+  gather(key = Measure, value = Centrality, Betweenness: OutStrength) %>%
+  mutate(var = str_replace(var, "_", " ")) %>%
+  unite(Measure, Measure, wave, sep = ".") %>%
+  spread(key = Measure, value = Centrality) %>%
+  mutate_at(vars(InStrength.1:OutStrength.2), funs(round(.,2))) %>%
+  mutate_at(vars(Closeness.1:Closeness.2), funs(sprintf("%.2e", .))) %>%
+  select(-type) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2, 
+        col.names = c("", rep(c("1","2"), times = 4))) %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T) %>%
+  #kable_styling(full_width = F) %>%
+  column_spec(1, width = "4cm") %>%
+  add_header_above(c(" " = 1,  "Betweenness" = 2, "Closeness" = 2,
+                     "In Strength" = 2, "Out Strength" = 2))
+```
+
+##### Table Contemporaneous
+```{r, results = 'asis'}
+# wrangle to wide format #
+contemp_cent %>%
+  gather(key = Measure, value = Centrality, Betweenness: Strength) %>%
+  mutate(var = str_replace(var, "_", " ")) %>%
+  unite(Measure, Measure, wave, sep = ".") %>%
+  spread(key = Measure, value = Centrality) %>%
+  mutate_at(vars(Strength.1:Strength.2), funs(round(.,2))) %>%
+  mutate_at(vars(Closeness.1:Closeness.2), funs(sprintf("%.2e", .))) %>%
+  select(-type) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2, 
+        col.names = c("", rep(c("1","2"), times = 3))) %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"),full_width = T) %>%
+  #kable_styling(full_width = F) %>%
+  column_spec(1, width = "4cm") %>%
+  add_header_above(c(" " = 1,  "Betweenness" = 2, "Closeness" = 2,
+                     "Strength" = 2))
+```
+
+
+
+### Edge Weights
+Contemporaneous networks are undirected and do not have feedback loops - that is, temporal precedence is unclear when behaviors are rated at the same time (see Figure 2). The strongest edge in the contemporaneous networks was between the two Extraversion items (quiet-outgoing: $b_{W1}$ = -.61; $b_{W2}$ = -.63). Indeed, many of the strongest relationships within the contemporaneous were within Big 5 domains (e.g. E1-E2, A1-A2) and were negative, which is not surprising given that one of the items in each domain was negatively keyed. Such relationships were coherent - participants reported feeling more lazy when they were less reliable (and vice versa; $b_{W1}$ = -.28, $b_{W2}$ = -.31) and more relaxed when they were less worried (and vice versa; $b_{W1}$ = -.38, $b_{W2}$ = -.38). There were notably strong relationships across domains as well. Reports of relaxation co-occurred with reports of feeling both lazy ($b_{W1}$ = .26; $b_{W2}$ = .24) and kind ($b_{W1}$ = .11, $b_{W2}$ = .08). Reports of kindness, in turn, were associated with feeling more outgoing ($b_{W1} = .13, $b_{W2}$ = .12) and reliable ($b_{W1}$ = .11, $b_{W2}$ = .10).  
+The strongest edge in the temporal networks in both waves was the feedback loop of the Neuroticism item "worried" (worried, $b_{W1}$ = .14; $b_{W2}$ = .16). Feedback loops can be interpreted as partial autocorrelations, which has been termed inertia in the affect literature (Ong & Ram, 2016). In other words, worrying seemed to carry over across time points, strongly predicting itself four hours later. Worry also strongly predicted other nodes, including reports of relaxation (worried - relaxed, $b_{W1}$ = -.11; $b_{W2}$ = -.08), being quiet (worried - quiet, $b_{W1}$ = 03; $b_{W2}$ = .08), and feeling depressed ($b_{W1}$ = .05; $b_{W2}$ = .04). Notably, many of the strongest edges included one or more Neuroticism nodes - ratings of items from the Neuroticism domain strongly predicted each other across time - with the top 5 connections across both waves including a Neuroticism node. Such a pattern was not observed within other traits - Extraversion (b's < |.005|), Agreeableness (b's < |.02|), and Conscientiousness (b's < |.03|) items weakly predicted each other over four hour intervals. However, several items exhibited strong inertia - reports of being lazy ($b_{W1}$ = .06; $b_{W2}$ = .08), reliable ($b_{W1}$ = .04; $b_{W2}$ = .06), and kind ($b_{W1}$ = .03; $b_{W2}$ = .06) were significant predictors of themselves. Feedback loops are critical features of temporal networks because although they do not explain shifts between behaviors over time, they do explain the likelihood of continuing to engage in a behavior once you begin. 
+
+### Centrality  
+Next, we examined the centrality of different nodes in the network. Centrality indexes the relative importance of different nodes in the network - that is, nodes' abilities to directly impact other nodes in the network. Central nodes represent patterns of influence shared across people, while peripheral nodes represent more unique patterns of influence. Centrality for all nodes in both temporal and contemporaneous networks across waves are displayed in Figure 3.  
+In the contemporaneous networks, how outgoing and relaxed participants reported had strong direct impacts on their other concurrent behaviors. The worried (N) and rudeness (A) nodes had notably little direct impact on other behaviors. In other words, in the moment, becoming more worried (N) or rude (A) would not strongly impact other concurrent behaviors, whereas feeling more outgoing and relaxed would. Nodes within traits tended to markedly differ in their centrality indices. For example, quiet (E) and depressed were at or below overall average centrality across all three measures, while outgoing (E) and relaxed (N) were well above average. In other words, behaviors, not traits, tended to drive concurrent behaviors.  
+In the temporal networks, worried (N) and relaxed (N) had the highest out-strength and in-strength, respectively, across both waves. That is, how worried you reported being strongly predicted many other behaviors four hours later but was little impacted by other behaviors. In contrast, how relaxed you reported was strongly predicted by what you were doing four hours ago but did not strongly predict your behavior later. Reports of how rude (A) and kind (A) were the lowest in in-strength. How rude or kind participants reported being was little impacted by their previous behaviors. Conversely, participants' reports of how quiet (E), outgoing (E), and reliable (C) they were had little bearing on their later behaviors. Together this suggests that nodes related to emotions (e.g. worried, relaxed) notably impact behavior, and nodes related to social behaviors (e.g. kind, outgoing) are little impacted by previous behaviors and little impact future behaviors.  
+
+### Network stability  
+Next, we assessed the stability of the population networks over time. To assess stability, we first calculated the profile correlation between the mlVAR fixed effects edge weights across the waves for both temporal and contemporaneous effects. Profile correlations index the stability of a profile of values over time - that is, how stable the positions of values are relative to all other values. Population networks were highly stable across waves. Contemporaneous network stability was almost at ceiling ($r$ = .99). Temporal network stability was still quite strong ($r$ = .68) but was significantly less stable than the contemporaneous networks ($z$ = 9.28, $p$ < .001).  
+
+```{r, eval = T, include = F}
+# Save time and load the models from .Rdata file #
+save(fit1_w1, w1, sum_fit1_w1,  plot_w1, plot_w1_contemp,
+     fit1_w2, w2, sum_fit1_w2,  plot_w2, plot_w2_contemp,
+     contemp_effects_w1, contemp_effects_w2, contemp_eff_w1,
+     contemp_eff_w2, temporal_effects_w1, temporal_effects_w2,
+     file = sprintf("%s/R/PAIRS_networks_pers_FINAL.RData", data_path))
+```
+
+```{r, message = F, results = 'asis'}
+# Profile (Ipsative) Edge Consistency
+# The easiest and most straightforward way to assess the sconsistency in responses across
+# time is simply to correlate the regression coefficients at each time point with those
+# at the other time points. We do this below for models generated using raw and centered data.  
+# For these correlations, we are correlating two vectors, each of which contains 81
+# weights (9 x 9). We do so once for temporal and once for contemporaneous effects.  
+
+cors <- data.frame(
+  comparison = c("W1 v. W2"),
+  type = c("temporal", "contemporaneous"),
+  raw_cor = 
+    c(cor(sum_fit1_w1$temporal$fixed,
+          sum_fit1_w2$temporal$fixed),
+      cor(sum_fit1_w1$contemporaneous$pcor,
+          sum_fit1_w2$contemporaneous$pcor)))
+
+cors %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2) %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+Next, we calculated the profile correlations between the centrality indices of temporal and contemporaneous effects across the waves separately for each measure of centrality. Across both waves, centrality was stable. Temporal in strength ($r$ = .86) was slightly more stable than temporal out strength ($r$ = .70). Contemporaneous strength centrality stability ($r$ = .98) was significantly more stable than temporal in strength ($z$ = 2.66, $p$ < .01) but not out strength ($z$ = 1.92, $p$ = .054).
+
+```{r, results = 'asis'}
+#### Profile (Ipsative) Centrality Consistency
+combined_centrality %>%
+  select(-z) %>%
+  spread(key = wave, value = Centrality) %>%
+  group_by(type, Measure) %>%
+  summarize(r = cor(`1`, `2`, use = "pairwise")) %>%
+  spread(key = type, value = r) %>% arrange(Contemporaneous) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2,
+  caption = "Profile Correlations of Population Level Centrality Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+## Footnote 4: P-factor Analyses 
+### Reference Factor Analyses
+Typically, idiographic personality structure has been approached from a factor analytic standpoint using so-called P-technique factor analysis (e.g. Borkenau & Ostendorpf, 1998; Molenaar, 2004). Thus, to contrast with individual differences in network consistency, we also sought to replicate past research by conducting a series of individual level idiographic P-factor analyses of repeated-measures data. Concurrent examination of both factor analytic and network approaches allows us to better understand the relative advantages of each.  
+For the idiographic P-factor analyses, we calculated a time series varimax rotated factor analysis for each participant at each wave ($N_{W1}$ = 348, $N_{W2}$ = 146), using the psych package in R (Revelle, 2014). Using an eigenvalue criteria of 1, we found that the time-series factor solution ranged from 1 to 4 factors, with a median of 3 for both waves. 4.9\% of the P-factor solutions in the first wave and 6.4\% of the P-factor solutions in the second wave had the number of factors expected by the 9 ESM items putative factor structure (4). Despite this, the content of the 4 extracted factors of even this small minority of factor solutions differed from expectations. Across all subjects, the first factor explained between 11.4\% and 37.7\% ($M_{W1}$ = 20.3\%, $SD_{W1}$ = 3.9\%) of the variance in Wave 1 and between 9.6\% and 37.7\% ($M_{W2}$ = 19.5\%, $SD_{W2}$ = 4.3\%) in Wave 2. The cumulative variance explained by the extracted factor solution ranged from 12.4\% to 79.6\% ($M_{W1}$ = 44.6\%, $SD_{W1}$ = 11.4\%) in wave 1 and from 13.5\% to 70.7\% ($M_{W2}$ = 42.1\%, $SD_{W2}$ = 10.8\%) in wave 2.
+
+```{r}
+# calculate individual for each variable
+w1_pop <- w1 %>%
+  mutate_at(vars(A_rude:N_relaxed), funs(mapvalues(., from = 1:5, to = 5:1))) %>%
+  gather(key = item, value = value, A_rude:N_worried) %>%
+  separate(item, c("trait", "item"), sep = "_") %>%
+  group_by(SID, trait, wave) %>%
+  summarize(esm = mean(value, na.rm = T)) %>%
+  ungroup() %>% mutate(trait = paste(trait, "esm", sep = ".")) %>%
+  spread(key = trait, value = esm) %>%
+  full_join(w1 %>%
+  group_by(SID) %>%
+  summarize_at(vars(A_rude:N_worried), funs(mean)) %>%
+  ungroup()) 
+w2_pop <- w2 %>%
+  mutate_at(vars(A_rude:N_relaxed), funs(mapvalues(., from = 1:5, to = 5:1))) %>%
+  gather(key = item, value = value, A_rude:N_worried) %>%
+  separate(item, c("trait", "item"), sep = "_") %>%
+  group_by(SID, trait, wave) %>%
+  summarize(esm = mean(value, na.rm = T)) %>%
+  ungroup() %>% mutate(trait = paste(trait, "esm", sep = ".")) %>%
+  spread(key = trait, value = esm) %>%
+  full_join(w2 %>%
+  group_by(SID) %>%
+  summarize_at(vars(A_rude:N_worried), funs(mean)) %>%
+  ungroup()) 
+
+w1w2_subs <- w1_pop$SID[w1_pop$SID %in% w2_pop$SID]
+w1_pop$wave <- "1"; w2_pop$wave <- "2"
+
+composites.long <- w1_pop %>%
+  full_join(w2_pop) %>%
+  filter(SID %in% w1w2_subs) %>%
+  gather(key = Variable, value = composite,-SID, -wave)
+```
+
+```{r}
+r_cors_w1 <- cor(w1_pop[,3:11])
+r_cors_w2 <- cor(w2_pop[,3:11])
+
+fa_w1  <- fa(r_cors_w1,  nfactors = 7, rotate = "varimax", 
+              n.obs = length(w1_pop))
+fa_w2 <- fa(r_cors_w2, nfactors = 7, rotate = "varimax", 
+              n.obs = length(w2_pop))
+
+factors_w1  <- sum(fa_w1$values  > 1)
+factors_w2 <- sum(fa_w2$values > 1)
+
+sink("/dev/null")
+pop_var_w1 <- print(fa_w1)$Vaccounted[3, factors_w1]
+pop_var_w2 <- print(fa_w2)$Vaccounted[3, factors_w2]
+sink()
+```
+
+### Idiographic Factor Analyses
+```{r}
+fa_fun <- function(df){df <- df %>% select(A_rude:N_worried); cor(df, use = "pairwise")}
+gVAR_fit <- gVAR_fit %>%
+  mutate(cor = map(data, possibly(fa_fun, NA_real_)),
+         fa = map(cor, possibly(~fa(., nfactors = 7, rotate = "varimax"), NA_real_))#,
+         # vss = map(data, possibly(~vss(., n = 8, rotate = "varimax", plot = F, n.obs = nrow(.)), NA_real_))
+         )
+```
+
+####Idiographic Factors
+```{r, results = 'hide'}
+eigen_fun <- function(x){
+  x <- sum(x$values > 1, na.rm = T)
+}
+
+Vaccounted_fun <- function(fa, nfactor){
+  y <- print(fa)$Vaccounted[3,]
+  z <- y[nfactor]
+  return(z)
+}
+
+sink("/dev/null")
+#eigenvalue > 1 rule
+gVAR_fit <- gVAR_fit %>%
+  mutate(eigen_factor = map_dbl(fa, possibly(eigen_fun, NA_real_)),
+         Vacc_first = map_dbl(fa, possibly(~print(.)$Vaccounted[3,1], NA_real_)),
+         Vacc_eigen = map2_dbl(fa, eigen_factor, possibly(Vaccounted_fun, NA_real_)))
+sink()
+```
+
+```{r, results = 'asis'}
+# descriptives of extracted factors from p-factors
+gVAR_fit %>%
+  select(SID, wave, eigen_factor:Vacc_eigen) %>%
+  gather(key = measure, value = value, eigen_factor:Vacc_eigen) %>%
+  group_by(wave, measure) %>%
+  summarize(M = mean(value, na.rm = T), sd = sd(value, na.rm = T),
+            median = median(value, na.rm = T), min = min(value, na.rm = T), 
+            max = max(value, na.rm = T)) %>%
+  gather(key = ct, value = value, M:max) %>%
+  unite(measure, measure, wave, sep = ".") %>%
+  spread(key = measure, value = value) %>%
+  kable(., "html", escape = F, booktabs = T, digits = 2,
+        col.names = c("Measure", rep(c("W1", "W2"), times = 3)),
+        caption = "Descriptives of P-factor Analyses") %>%
+  add_header_above(header = c(" " = 1, "Eigenvalue Factors" = 2, "Variance Accounted" = 2, 
+                              "Variance First Factor" = 2)) %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+## Footnote 5: Pairwise Profile Congruence 
+Differences were not unique to the two example subjects. Globally, we can compare each participant's profile of edge weights to all other participants' profiles to assess similarity in network structure. On average, pairwise congruence was higher in the contemporaneous networks ($M_{W1}$ = .44; $M_{W2}$ = .45) than the temporal networks ($M_{W1}$ = .01; $M_{W2}$ = .01). The contemporaneous estimates suggest that there are similarities across people, with their profiles showing modest correlations, on average. This is to be expected, as it suggests that relationship between variables that are presumed in factor models is justified. In contrast, it appears that people have very little overlap in temporal edge weights, on average.  
+```{r, results = 'asis'}
+r_fun <- function(df){
+  x <- data.frame((df %>% select(-SID)))
+  rownames(x) <- df$SID
+  y <- cor(t(x), use = "pairwise")
+  y[upper.tri(y, diag = T)] <- NA
+  z <- tbl_df(data.frame(y) %>%
+    mutate(SID = colnames(y)) %>%
+    gather(key = SID2, value = r, -SID) %>%
+    mutate(SID2 = gsub("X", "", SID2))) %>%
+    filter(!is.na(r)) 
+}
+
+pcong_cors <- temp_long %>%
+  select(SID, wave, type, from, to, weight) %>%
+  unite(var, from, to, sep = ".") %>%
+  full_join(contemp_long %>% select(SID, wave, var, type, weight)) %>%
+  spread(key = var, value = weight) %>%
+  group_by(wave, type) %>%
+  nest() %>%
+  mutate(pcr = map(data, r_fun))
+
+pcong_cors %>% unnest(pcr, .drop = T) %>%
+  filter(!is.na(r)) %>%
+  group_by(wave, type) %>%
+  summarize(mean = meanSD_r2z2r(r)[1],
+            sd = sd(r, na.rm = T)) %>%
+  kable(., "html", digits = 2, booktabs = T,
+        col.names = c("Wave", "Type", "M", "SD"),
+        caption = "Descriptives of Pairwise Congruence Correlations") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+## Footnote 7: ESM Composites
+For comparison purposes, we also created a composite of ESM assessments. We first calculated individuals' mean ratings on each of the personality variable for each wave. We also calculated composite scores for each Big 5 traits at each measurement point. Then, for each wave and item / composite combination, we assigned ranks to participants based on their ESM composites. We used the ranks to calculate rank-order correlations using Spearman correlations, resulting in 14 rank order correlations (1 for each of the 9 items and 4 composites). Overall, rank order stability was fairly high across the two years for both items (range .46 to .74) and composites (range .68 to .79). Finally, we calculated profile correlations for items and composites separately for each participant across the two waves. Overall, consistency of both Big 5 composites (M = .97) and items (M = .91) was very strong over two years. There were also interindividual differences in intraindividual consistency of both composites (SD = .66) and items (SD = .47). We use these to as a benchmark to which to compare rank order and ipsative consistency of idiographic networks.
+
+```{r}
+#compute scale scores for BF domains
+#first create the keys by location (the conventional way)
+keys.list <- list(
+  E.esm = c(-1, 6),
+  A.esm = c(-1, 7),
+  C.esm = c(-3, 8),
+  N.esm = c(-4, 5, 9))
+keys <- make.keys(9,keys.list,item.labels=colnames(w1)[6:14])
+
+# score the items and save to columns
+ncol_w1 <- dim(w1)[2]; ncol_w2 <- dim(w2)[2]
+w1[(ncol_w1 + 1):(ncol_w1 + 4)] <- scoreItems(keys,w1[,6:14],min=1,max=5)$scores
+w2[(ncol_w2 + 1):(ncol_w2 + 4)] <- scoreItems(keys,w2[,5:13],min=1,max=5)$scores
+# rename the new columns
+colnames(w1)[(ncol_w1 + 1):(ncol_w1 + 4)] <- names(keys.list)
+colnames(w2)[(ncol_w2 + 1):(ncol_w2 + 4)] <- names(keys.list)
+
+# create a data frame merging the responses
+esm.composites <- w1 %>% mutate(wave = "1") %>%
+  select(SID, wave, A_rude:N_worried, E.esm:N.esm) %>%
+  full_join(w2 %>% mutate(wave = "2") %>%
+    select(SID, wave, A_rude:N_worried, E.esm:N.esm)) %>%
+  mutate(SID = as.character(SID)) %>%
+  gather(key = item, value = value, A_rude:N.esm) %>%
+  group_by(SID, wave, item) %>%
+  summarize(mean = mean(value, na.rm = T)) %>%
+  spread(key = item, value = mean)
+```
+
+
+###Variable Centered: Rank-Order Change
+```{r, results = 'asis'}
+cor_fun <- function(x){
+  cor(x$`1`, x$`2`, use = "pairwise", method = "spearman")
+}
+
+mean_cors <- composites.long %>%
+  mutate(type = ifelse(grepl("_", Variable) == T, "Item", "Composite")) %>%
+  filter(SID %in% w1w2_subs) %>%
+  group_by(Variable, wave) %>%
+  mutate(rank = min_rank(desc(composite))) %>%
+  select(-composite) %>%
+  spread(key = wave, value = rank) %>%
+  group_by(Variable, type) %>%
+  nest() %>%
+  mutate(r = map_dbl(data, cor_fun))
+
+mean_cors %>%
+  group_by(type) %>%
+  summarise(meanr = meanSD_r2z2r(r)[1],
+            sd = meanSD_r2z2r(r)[2], 
+            min = min(r),
+            max = max(r)) %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of ESM Composites Rank-Order Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+### Person-Centered: Ipsative Change
+```{r, results = 'asis'}
+w1$wave <- "1"; w2$wave <- "2" 
+mean_profile_cors <- w1 %>%
+  select(SID, wave, A_rude:N_worried, E.esm:N.esm) %>%
+  full_join(select(w2, wave, SID, A_rude:N_worried, E.esm:N.esm)) %>%
+  filter(SID %in% w1w2_subs) %>%
+  group_by(wave, SID) %>%
+  summarize_at(vars(A_rude:N.esm), funs(mean(., na.rm = T))) %>%
+  ungroup() %>%
+  gather(key = variable, value = rating, A_rude:N.esm) %>%
+  mutate(type = ifelse(grepl("_", variable) == T, "Item", "Composite")) %>%
+  group_by(SID, type) %>%
+  summarize(cor = cor(rating[wave == "1"], rating[wave == "2"], use = "pairwise.complete.obs")) %>%
+  ungroup()
+
+mean_profile_cors %>%
+  ggplot(aes(x = cor)) + 
+  geom_histogram(color = "black", fill = "gray") + 
+  facet_grid(.~type) + 
+  labs(x = "Profile Correlation", y = "Frequency", title = "Profile Correlations of ESM Composites") + 
+  scale_x_continuous(lim = c(0,1), breaks = seq(0,1,.25)) + 
+  theme_bw()
+
+mean_profile_cors %>%
+  group_by(type) %>%
+  summarise(meanr = meanSD_r2z2r(cor)[1],
+            sd = meanSD_r2z2r(cor)[2], 
+            min = min(cor),
+            max = max(cor)) %>%
+  kable(., booktabs = T, digits = 2, format = "html",
+        caption = "Descriptives of ESM Composites Ipsative Consistency") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+## Footnote 8: Idiographic Individual Differences {.tabset}  
+An alternative way to index individual differences in network structure. To index whether people in general had similar edge weights (e.g., the relationship between outgoing and quiet, both items from extraversion) we is to examine the standard deviation of edge weights for both contemporaneous and temporal idiographic networks see Figure Sxx in the Supplementary Materials). Significant variation existed across edges and types of networks. In the contemporaneous networks, the outgoing (E) - quiet (E) edge in the contemporaneous networks was most variable in both waves ($SD_{W1}$ = .28; $SD_{W2}$ = .32), indicating that not everyone had the typical strong, negative correlation between feeling outgoing and quiet. The most variable edges for temporal were lazy (C) - rude (A) in wave 1 ($SD$ = .87) and reliable (C) - worried (N) in wave 2 ($SD$ = .92). Overall, it appears that most people manifest some similar behaviors when they feel they are rude (e.g., not-quiet, not-relaxed), but this is not always the case as many people were rude while being lazy time (Subject 10493) while others were rude while not being lazy (Subject 10549).  
+
+### Edge Weights
+#### Table
+```{r}
+temp_long %>%
+  rename(Var1 = from, Var2 = to) %>%
+  select(wave, SID, type, Var1, Var2, weight) %>%
+  full_join(select(contemp_long, SID, wave, type, Var1, Var2, weight)) %>%
+  filter(Var1 == "E_quiet" & Var2 == "N_depressed" & type == "Contemporaneous") %>%
+  mutate(sign = sign(weight)) %>%
+  arrange(desc(weight))
+  # group_by(wave, sign) %>%
+  # summarize(n = n())
+
+ew_ind_diff <- temp_long %>%
+  rename(Var1 = from, Var2 = to) %>%
+  select(wave, type, Var1, Var2, weight) %>%
+  full_join(select(contemp_long, wave, type, Var1, Var2, weight)) %>%
+  group_by(type, wave, Var1, Var2) %>%
+  summarize(sd = fisherz2r(sd(fisherz(weight), na.rm = T)))
+```
+
+#### Plot
+```{r, fig.width=8, fig.height=8}
+graph_fun <- function(dat, type, wave){
+  if(type == "Temporal"){
+    qgraph(dat, directed = T, node.width = 2,  arrows = T, layout = "circle",
+           title=sprintf("%s Wave %s", type, wave), edge.color = "blue", 
+           mar = rep(6,6), label.font = 2, label.fill.vertical = 1, 
+           label.fill.horizontal = 1, color = "white")
+  } else if(type == "Contemporaneous"){
+    qgraph(dat, directed = F, node.width = 2, arrows = F, layout = "circle",
+           title=sprintf("%s Wave %s", type, wave), edge.color = "blue", 
+           mar = rep(6,6), label.font = 2, label.fill.vertical = 1, 
+           label.fill.horizontal = 1, color = "white")
+  }
+}
+
+par(mfrow = c(2,2))
+ew_ind_diff_nested <- ew_ind_diff %>% ungroup() %>%
+  mutate(Var1 = str_replace(Var1, "_", "\n"),
+         Var2 = str_replace(Var2, "_", "\n")) %>%
+  group_by(type, wave) %>%
+  nest() %>%
+  arrange(wave, rev(type)) %>%
+  mutate(graph = pmap(list(data, type, wave), graph_fun))
+```
+
+### Individual Differences in Centrality 
+To look at individual differences in centrality, we can compute the standard deviation of the each edge for each measure. We do so below and display in a plot.  
+```{r}
+temp_centrality %>%
+  gather(key = measure, value = value, Betweenness:OutStrength) %>%
+  full_join(contemp_centrality %>%
+              gather(key = measure, value = value, Betweenness:Strength)) %>%
+  group_by(SID, wave, type, measure) %>%
+  mutate(z = as.numeric(scale(value))) %>%
+  ungroup() %>%
+  group_by(wave, var, measure, type) %>%
+  mutate(sd = sd(value, na.rm = T)) %>%
+  filter(grepl("trengt", measure)) %>%
+  ggplot(aes(x = var, y = sd, group = wave))+
+  geom_line(aes(linetype = wave), color = "black", size = .3) + 
+  geom_point(aes(shape = wave), size = 2) + 
+  labs(x = NULL, y = "z-score", linetype = "Wave", shape = "Wave") +
+  scale_y_continuous(limits = c(0,3), breaks = seq(0,3,1)) + 
+  geom_hline(aes(yintercept = 0)) + 
+  coord_flip() + 
+  facet_wrap(~type + measure, nrow = 1) + 
+  theme_classic()+ 
+  theme(axis.text = element_text(face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold"),
+        legend.position = "bottom")#c(.75, .25))
+```
+
+
+
+# Supplemental Analyses
+## Relationships Among Consistency Estimates: Do Networks Capture Unique Aspects of Development?  
+```{r, results = 'asis'}
+consis_rs <- ip_cors %>% 
+  mutate(type2 = "Edge Weights") %>% rename(r = cors) %>%
+  full_join(ip_cent_cors %>% filter(grepl("trength", measure)) %>%
+              mutate(type2 = "Centrality") %>% unite(type, type, measure, sep = ".")) %>% 
+  full_join(mean_profile_cors %>% mutate(type2 = type, type = "Composites") %>%
+              rename(r = cor)) %>%
+  full_join(ip_split_cors %>% mutate(type2 = sprintf("Edge Weights: %s", split_type)) %>%
+              select(-split_type) %>% unite(type, type, wave, sep = ".")) %>%
+  unite(type, type, type2, sep = "_") %>%
+  spread(key = type, value = r) %>%
+  select(-SID) %>%
+  cor(., use = "pairwise")
+
+
+new.names <- c("Big 5 Composites", "Big 5 Item Composites", "Contemporaneous Edge Weights",
+               "Contemporaneous Odd-Even Edge Weights (W1)","Contemporaneous Split-Half Edge Weights (W1)",
+               "Contemporaneous Odd-Even Edge Weights (W2)","Contemporaneous Split-Half Edge Weights (W2)",
+               "Contemporaneous Strength Centrality", "Temporal Edge Weights",
+               "Temporal Odd-Even Edge Weights (W1)","Temporal Split-Half Edge Weights (W1)",
+               "Temporal Odd-Even Edge Weights (W2)","Temporal Split-Half Edge Weights (W2)",
+               "Temporal In Strength Centrality", "Temporal Out Strength Centrality")
+
+consis_rs[lower.tri(consis_rs)] <- sprintf("%.2f", consis_rs[lower.tri(consis_rs)])
+consis_rs[upper.tri(consis_rs)] <- ""
+diag(consis_rs) <- "--"
+data.frame(consis_rs) %>%
+  mutate(var = rownames(.),
+         var = mapvalues(var, unique(var), new.names),
+    var = paste(seq(1, ncol(consis_rs),1), var, sep = ". ")) %>%
+  select(var, everything()) %>%
+  setNames(c("Measure", seq(1,ncol(consis_rs),1))) %>%
+  kable(., "html", booktabs = T, escape = F, digits = 2,
+        caption = "Correlations Between Ipsative Consistency Measures") %>%
+  kable_styling(bootstrap_options = c("striped","repeat_header"), full_width = T)
+```
+
+
+##Profile Consistency Correlates: Profile Consistency Correlates: What May Explain Individual Differences in Network Consistency?
+```{r, results = 'asis'}
+# read outcome variables from wave 1 #
+target.ratings.initial.w1 <- tbl_df(read.csv("~/Box Sync/network/PAIRS/consistency/data/Wave 1/target_w1_RENAMED.csv")) %>%
+  mutate(wave = "1", ts.IDnum.w1 = ifelse(ts.IDnum.w1 < 10000, ts.IDnum.w1 + 10000, ts.IDnum.w1))
+target.ratings.initial.w2 <- tbl_df(read.csv("~/Box Sync/network/PAIRS/consistency/data/Wave 4/home_w4_RENAMED.csv")) %>%
+  mutate(wave = "2", ts.IDnum.w4 = ifelse(ts.IDnum.w4 < 10000, ts.IDnum.w4 + 10000, ts.IDnum.w4))
+
+names.w1 <- colnames(target.ratings.initial.w1)
+names.w2 <- colnames(target.ratings.initial.w2)
+names.w1 <- gsub(".w1", "", names.w1)
+names.w2 <- gsub(".w4", "", names.w2)
+colnames(target.ratings.initial.w1) <- names.w1
+colnames(target.ratings.initial.w2) <- names.w2
+
+target.ratings <- target.ratings.initial.w1 %>%
+  full_join(target.ratings.initial.w2 %>%
+              mutate(ts.AGQ03 = as.numeric(stringr::str_replace(ts.AGQ03, ",", ".")))) %>% 
+  select(wave,contains("ts"), -X, -(ts.startDateTime:ts.PRO17), -ts.DEM04, 
+         -(ts.DEM06:ts.DEM09), -(ts.DEM15:ts.DEM16), contains(".con")) %>%
+  gather(key = item, value = value, -ts.IDnum, -wave) %>%
+  group_by(item) %>% mutate(n = sum(!is.na(value))) %>%
+  filter((wave == "1" & n > 200) | (wave == "2" & n > 175)) %>%
+  select(-n) %>% rename(SID = ts.IDnum) %>%
+  mutate(SID = ifelse(as.numeric(SID) < 10000, as.numeric(SID) + 10000, SID)) %>%
+  spread(key = item, value = value)
+
+target.depression <- target.ratings %>%
+  select(SID, wave, contains("CESD")) %>%
+  mutate_at(vars(ts.CESD01:ts.CESD10), funs(recode(., `1` = 0, `2` = 1, `3` = 2, `4` = 3))) %>%
+  mutate_at(vars(ts.CESD06, ts.CESD03), funs(recode(., `0` = 3, `1` = 2, `2` = 1, `3` = 0))) %>%
+  gather(key = item, value = rating, ts.CESD01:ts.CESD10) %>%
+  group_by(SID, wave) %>%
+  summarize(depression = sum(rating, na.rm = T)) %>%
+  arrange(desc(depression)) %>%
+  # mutate(wave = recode(wave, `4` = 2, `1` = 1)) %>%
+  spread(key = wave, value = depression) %>%
+  filter(!is.na(`1`) & !is.na(`2`)) %>%
+  gather(key = wave, value = depression, -SID) %>%
+  group_by(SID) %>%
+  mutate(change = sign(depression[wave == 2] - depression[wave == 1])) %>% 
+  ungroup() 
+
+BFI_items <- paste("ts.", "BFI", c(paste("0", 1:9, sep = ""), 10:44), sep = "")
+BFI_key <- c(paste(rep(c("E", "A", "C", "N", "O"), times = 8), 
+             paste("0", rep(1:8, each = 5), sep = ""), sep = "_"), 
+             "O_09", "A_09", "C_09", "O_10")
+
+keys <- list(Extraversion = c(1, -6, 11, 16, -21, 26, -31, 36),
+             Agreeableness = c(-2, 7, -12, 17, 22, -27, 32, -37, 42),
+             Conscientiousness = c(3, -8, 13, -18, -23, 28, 33, 38, -43),
+             Neuroticism = c(4, -9, 14, 19, -24, 29, -34, 39),
+             Openness = c(5, 10, 15, 20, 25, 30, -35, 40, -41, 44))
+
+BFI <- target.ratings %>% select(SID, wave, one_of(BFI_items)) %>%
+  mutate_at(vars(-wave), funs(as.numeric)) %>%
+  setNames(c("SID", "wave", BFI_key))
+BFI[,47:51] <- scoreItems(keys, BFI[,3:46], min = 1, max = 15)$scores
+colnames(BFI)[47:51] <- names(keys)
+
+stab_cors <- ip_cors %>%
+  left_join(target.ratings) %>%
+  left_join(BFI %>% select(SID, wave, Extraversion:Openness)) %>%
+  left_join(esm.composites %>% ungroup() %>% mutate(SID = as.numeric(SID))) %>%
+  left_join(target.depression) %>%
+  mutate_at(vars(ts.ACT01:ts.WT02), funs(as.numeric)) %>%
+  gather(key = outcome, value = value, ts.ACT01:change) %>%
+  group_by(wave, outcome, type) %>%
+  summarize(r = cor(cors, value, use = "pairwise")) %>%
+  filter(!is.na(r)) %>%
+  unite(comb, type, wave) %>%
+  spread(key = comb, value = r) %>%
+  filter(!is.na(Contemporaneous_2))
+
+outcomes <- 
+tribble(
+  ~oldName, ~newName, ~prettyName,
+  "ts.NQ02",   "intelligent", "Intelligence",
+  "ts.NQ15",   "compassionate", "Compassion",
+  "ts.NQ24",   "dominant", "Dominance",
+  "ts.NQ33",   "lonely", "Loneliness",
+  "ts.VQ16",   "giveBack", "Enjoys Giving Back",
+  "ts.AGQ09",  "probWPartying", "Partying Causes Life Problems",
+  "ts.ACT22",  "talkRelat", "Talks About Relationships",
+  "ts.LE09",   "winAward", "Won An Award",
+  "A.esm", "A.esm", "State Agreeableness",
+  "E.esm", "E.esm", "State Extraversion",
+  "C.esm", "C.esm", "State Conscientiousness",
+  "N.esm", "N.esm", "State Neuroticism",
+  "Agreeableness", "Agreeableness", "Trait Agreeableness",
+  "Extraversion", "Extraversion", "Trait Extraversion",
+  "Conscientiousness", "Conscientiousness", "Trait Conscientiousness",
+  "Neuroticism", "Neuroticism", "Trait Neuroticism",
+  "Openness", "Openness", "Trait Openness"
+)
+
+stab_cors %>% ungroup() %>%
+  filter(outcome %in% outcomes$oldName) %>%
+  mutate(#type = ifelse(grepl(".esm", outcome) == T, "ESM", "Trait"), 
+         outcome = mapvalues(outcome, outcomes$oldName, outcomes$prettyName)) %>%
+  arrange(outcome) %>%
+#  select(-type) %>%
+  mutate_at(vars(Contemporaneous_1:Temporal_2), funs(round(.,2))) %>%
+  kable(., "html", booktabs = T, digits = 2, 
+            caption = "Correlates of Measures of Ipsative Consistency",
+            col.names = c("Outcome", "W1", "W2", "W1", "W2"),
+            align = c("l", "r", "r", "r", "r")) %>%
+  add_header_above(c("Outcome" = 1, "Contemporaneous" = 2, "Temporal" = 2))
+  
+
+```
+
+
+
+
