@@ -56,7 +56,7 @@ library(data.table)
 library(plyr)
 library(tidyverse)
 
-data_path <- "~/Box Sync/network/PAIRS/consistency"
+data_path <- "https://github.com/emoriebeck/PAIRS-Network-Stability"
 esm_codebook <- tbl_df(readxl::read_xlsx(sprintf("%s/data/Codebook.xlsx", data_path), sheet = "ESM"))
 ```
 
@@ -244,7 +244,7 @@ gVAR_fit <- w1 %>%
   group_by(SID, wave, count) %>%
   nest() %>%
   mutate(gVAR_fit = pmap(list(data, SID, wave), possibly(gVAR_fun, NA_real_)))
-save(gVAR_fit, file = sprintf("%s/R/graphicalVAR_allSubs.RData", data_path))
+save(gVAR_fit, file = sprintf("%s/results/graphicalVAR_allSubs.RData", data_path))
 ```
 
 
@@ -284,7 +284,7 @@ contemp_long_fun <- function(fit){
 #### Temporal
 ```{r, results = 'asis', message = FALSE, eval = T}
 # load idiographic networks #
-load(sprintf("%s/R/graphicalVAR_allSubs.RData", data_path))
+load(sprintf("%s/results/graphicalVAR_allSubs.RData", data_path))
 
 # run functions for extraction
 gVAR_fit <- gVAR_fit %>%
@@ -460,7 +460,7 @@ gVAR_data <- gVAR_fit %>%
   mutate(PDC = map(gVAR_fit, ~.$PDC),
          PCC = map(gVAR_fit, ~.$PCC)) %>%
   select(-gVAR_fit)
-save(gVAR_data, file = "~/Box Sync/network/PAIRS/consistency/R/app_data.RData")
+save(gVAR_data, file = sprintf("%s/R/app_data.RData", data_path))
 
 # save all temporal centrality to a long format df
 (temp_centrality <- gVAR_fit %>%
@@ -608,18 +608,18 @@ And create heat maps showing the individual temporal and contemporaneous rank-or
 # make heat maps of both contemporaneous and temporal rank order cors
 ## figure 6 in manuscript ##
 contemp_cors_long %>%
-  rename(from = Var1, to = Var2) %>%
-  full_join(temp_cors_long) %>%
-  mutate(from = factor(from, levels = sort(unique(from))),
-         to = factor(to, levels = rev(sort(unique(to))))) %>%
-  ggplot(aes(x = from, y = to, fill = r)) + 
+  full_join(temp_cors_long %>%
+  rename(Var1 = from, Var2 = to)) %>%
+  mutate(Var1 = factor(Var1, levels = sort(unique(Var1))),
+         Var2 = factor(Var2, levels = rev(sort(unique(Var2))))) %>%
+  ggplot(aes(x = Var1, y = Var2, fill = r)) + 
   geom_raster() + 
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
    midpoint = 0, limit = c(-.5,.5), space = "Lab", 
    name="Edge Consistency\nCorrelations") +  
   geom_text(aes(label = round(r,2))) +
   facet_grid(.~Type) + 
-  labs(x = "From", y = "To") + 
+  labs(x = "Node 1", y = "Node 2") + 
   theme_classic() +
   theme(strip.text = element_text(face = "bold"),
         axis.text = element_text(face = "bold"),
@@ -808,14 +808,14 @@ gVAR_fit_split <- unique(expand.grid(stringsAsFactors = F,
   mutate(row = row_number(),
          gVAR_fit = pmap(list(SID, wave, split_type, split_num, row), 
                          possibly(gVAR_split_fun, NA_real_)))
-save(gVAR_fit_split, file = "~/Box Sync/network/PAIRS/consistency/results/split_half_gVAR_fit.RData")
+save(gVAR_fit_split, file = sprintf("%s/results/split_half_gVAR_fit.RData", data_path))
 ```
 
 
 ```{r, results = 'asis'}
 # run the same extraction procedure as above for split-half networks
 ##split half networks
-load("~/Box Sync/network/PAIRS/consistency/results/split_half_gVAR_fit.RData")
+load(sprintf("%s/results/split_half_gVAR_fit.RData", data_path))
 gVAR_fit_split <- gVAR_fit_split %>%
   filter(!is.na(gVAR_fit)) %>%
   group_by(SID, wave, split_type) %>%
@@ -869,8 +869,9 @@ plot_fun <- function(df, type){
   plot <- df %>%
     mutate(split_type = dplyr::recode(split_type, `every-other` = "Odd-Even",
               `half` = "Split-Half")) %>%
-  ggplot(aes(x = r)) +
-  geom_histogram(aes(y = ..density..), color = "black", fill = "gray") +
+  ggplot(aes(x = r, y = ..density.., fill = split_type)) +
+  geom_histogram(color = "black", fill = "gray") +
+  geom_density(alpha = .2) +
   scale_x_continuous(limits = c(-1,1), breaks = seq(-1,1,.5)) +
   labs(x = sprintf("%s Ipsative Correlations", type), y = "Density") +
   facet_grid(wave~split_type) +
@@ -878,7 +879,8 @@ plot_fun <- function(df, type){
   theme(axis.text = element_text(face = "bold", size = rel(1.2)),
         axis.title = element_text(face = "bold", size = rel(1.2)),
         strip.text = element_text(face = "bold", size = rel(1.2)),
-        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5))
+        plot.title = element_text(face = "bold", size = rel(1.2), hjust = .5),
+        legend.position = "none")
   ggsave(sprintf("%s/results/plots/%s_split_reliability.png", data_path, type), 
          width = 6, height = 4)
   print(plot)
@@ -898,7 +900,7 @@ ip_split_plot <- ip_split_cors %>%
 # Question 3: Are there Individual Differences in Idiographic Network Consistency?  
 ## Congruence with the Reference Profile
 ```{r}
-load(sprintf("%s/R/PAIRS_networks_pers_FINAL.RData", data_path))
+load(sprintf("%s/results/PAIRS_networks_pers_FINAL.RData", data_path))
 profile_cor_fun <- function(id_list, wave, type){
   if(type == "Temporal"){
     id_list <- id_list %>% select(from, to, type, weight) %>% arrange(from, to)
@@ -927,10 +929,11 @@ To look at individual differences in Network consistency, we user a Fisher r to 
 ```{r}
 ip_cors <- (ip_temp_cors) %>% full_join(ip_contemp_cors)
 
-ggplot(ip_cors, aes(x = cors)) + 
+ggplot(ip_cors, aes(x = cors, y = ..density..)) + 
   geom_histogram(color = "black", fill = "gray") +
+  geom_density(bw = .1, color = "royalblue2", fill = "royalblue2", alpha = .3)+
   scale_x_continuous(limits = c(-1,1), breaks = seq(-1,1,.5)) +
-  labs(x = "Ipsative Correlations", y = "Frequency",
+  labs(x = "Ipsative Correlations", y = "Density",
        title = "Ipsative Network Consistency") +
   facet_grid(.~type) +
   theme_classic() +
@@ -966,13 +969,19 @@ ip_cent_cors <- ip_temp_cent_cors %>%
 ip_temp_cent_cors %>%
   full_join(ip_contemp_cent_cors ) %>%
   filter(grepl("trength", measure)) %>%
-  ggplot(aes(x = r))+
+  ggplot(aes(x = r, y = ..density.., fill = measure)) + 
   geom_histogram(binwidth = .1, color = "black", fill = "gray")+
-  labs(y = "Frequency", x = "Profile Correlation", 
-       title = "Contemporaneous\nProfile Correlations") + 
+  geom_density(bw = .1, alpha = .3)+
+  labs(y = "Density", x = "Profile Correlation") + 
   facet_wrap(~type + measure, nrow = 1) + 
-  theme_bw() + 
-  theme(plot.title = element_text(hjust = .5))
+  theme_classic() + 
+  theme(plot.title = element_text(hjust = .5),
+        legend.position = "none",
+        axis.text = element_text(face = "bold", size = rel(1.2)),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        strip.text = element_text(face = "bold", size = rel(1.2)))
+ggsave(sprintf("%s/results/plots/centrality_ipsative_cor.png", data_path), 
+       width  = 6, height = 3)
 ```
 
 ### Table
@@ -1669,9 +1678,9 @@ data.frame(consis_rs) %>%
 ##Profile Consistency Correlates: Profile Consistency Correlates: What May Explain Individual Differences in Network Consistency?
 ```{r, results = 'asis'}
 # read outcome variables from wave 1 #
-target.ratings.initial.w1 <- tbl_df(read.csv("~/Box Sync/network/PAIRS/consistency/data/Wave 1/target_w1_RENAMED.csv")) %>%
+target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave 1/target_w1_RENAMED.csv", data_path))) %>%
   mutate(wave = "1", ts.IDnum.w1 = ifelse(ts.IDnum.w1 < 10000, ts.IDnum.w1 + 10000, ts.IDnum.w1))
-target.ratings.initial.w2 <- tbl_df(read.csv("~/Box Sync/network/PAIRS/consistency/data/Wave 4/home_w4_RENAMED.csv")) %>%
+target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave 4/home_w4_RENAMED.csv", data_path))) %>%
   mutate(wave = "2", ts.IDnum.w4 = ifelse(ts.IDnum.w4 < 10000, ts.IDnum.w4 + 10000, ts.IDnum.w4))
 
 names.w1 <- colnames(target.ratings.initial.w1)
