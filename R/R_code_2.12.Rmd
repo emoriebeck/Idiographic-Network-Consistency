@@ -1,8 +1,5 @@
 ---
 title: "Consistency and Change in Idiographic Personality: A Longitudinal ESM Network Study Supplementary Code"
-author: 
-  - "Emorie D Beck"
-  - "Joshua J Jackson"
 date: "`r Sys.setlocale('LC_TIME', 'C'); format(Sys.time(), '%d\\\\. %B %Y')`"
 output:
   html_document:
@@ -23,10 +20,6 @@ editor_options:
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
 ```
 
-<a href="https://raw.githubusercontent.com/emoriebeck/Idiographic-Network-Consistency/master/R/R_code_2.12.Rmd" download>Download .Rmd (won't work in Safari or IE)</a>  
-<a href="https://github.com/emoriebeck/Idiographic-Network-Consistency" target="_blank">See GitHub Repository</a>  
-<a href="https://osf.io/fyxza/" target="_blank">See OSF Repository</a>  
-<a href="https://psyarxiv.com/pb92q" target="_blank">PsyArXiv Preprint</a>   
 <a href="https://emoriebeck.shinyapps.io/pairs_graphicalvar/" target="_blank">RShiny Web App</a>   
 
 #Workspace
@@ -60,7 +53,6 @@ rdata_path <- "https://github.com/emoriebeck/Idiographic-Network-Consistency/blo
 data_path <- "https://raw.githubusercontent.com/emoriebeck/Idiographic-Network-Consistency/master"
 esm_codebook <- sprintf("%s/data/Codebook.csv", data_path) %>%
   read.csv(., stringsAsFactors = F) %>% 
-  filter(type == "ESM") %>%
   tbl_df
 ```
 
