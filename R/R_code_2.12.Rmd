@@ -20,7 +20,7 @@ editor_options:
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, error = FALSE)
 ```
 
-<a href="https://emoriebeck.shinyapps.io/pairs_graphicalvar/" target="_blank">RShiny Web App</a>   
+<a href="https://masked-account.shinyapps.io/Idio-nets/" target="_blank">RShiny Web App</a>   
 
 #Workspace
 
