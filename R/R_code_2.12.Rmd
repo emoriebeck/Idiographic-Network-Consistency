@@ -89,19 +89,16 @@ new.names <- esm_codebook$new_name
 w1 <- wave1_all %>%
   select(one_of(paste(old.names, "w1", sep = "."))) %>%
   setNames(new.names) %>% # change column names
-  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
-         wave = "1") %>%
+  mutate(wave = "1") %>%
   filter(complete.cases(.))
 w4 <- wave4_all %>%
   select(one_of(paste(old.names, "w4", sep = "."))) %>%
   setNames(new.names) %>% # change column names
-  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
-         wave = "4")
+  mutate(wave = "4")
 w7 <- wave7_all %>%
   select(one_of(paste(old.names, "w7", sep = "."))) %>%
   setNames(new.names) %>% # change column names
-  mutate(SID = ifelse(SID < 10000, SID + 10000, SID),
-         wave = "7")
+  mutate(wave = "7")
 
 # merge wave 4 and 7 data sets
 w2 <- w4 %>% full_join(w7) %>%
@@ -234,8 +231,8 @@ gVAR_fun <- function(x, SID, wave){
 gVAR_fit <- w1 %>%
   full_join(w2) %>%
   arrange(wave, SID) %>%
-  filter(!(wave == "2" & SID %in% c("10440", "10516", "10248")) &
-         !(wave == "1" & SID %in% c("10059", "10434"))) %>%
+  filter(!(wave == "2" & SID %in% c("89078", "65365", "20054")) &
+         !(wave == "1" & SID %in% c("34960", "27127"))) %>%
   select(-contains("sd")) %>%
   group_by(SID, wave, count) %>%
   nest() %>%
@@ -341,8 +338,8 @@ idio_plot_fun <- function(data, subject, wave, type){
   if(type == "Temporal"){data_mod <- data$PDC}
   else{data_mod <- data$PCC}
   b5_groups <- list(A = c(1,7), E = c(2, 6), C = c(3,8), N = c(4,5,9))
-  subject <- ifelse(subject == "10008", "1", 
-             ifelse(subject == "10240", "2", subject))
+  subject <- ifelse(subject == "22652", "1", 
+             ifelse(subject == "91339", "2", subject))
   plot <- 
     qgraph(data_mod, layout = "spring", loop = .7, node.width = 1.85, edge.width = 1,
            esize = 7, title = sprintf("%s Wave %s for S%s", type, wave, subject),
@@ -371,19 +368,19 @@ gVAR_fit <- gVAR_fit %>%
                           possibly(idio_plot_fun, NA_real_)))
 ```
 
-Below we will print the two example subjects (10008 = 1; 10240 = 2) from the manuscript.
+Below we will print the two example subjects ( = 1; 91339 = 2) from the manuscript.
 
-#### Subject 10008
+#### Subject 
 ```{r, results='hide'}
 par(mfrow = c(2,2))
-gVAR_fit %>% filter(SID %in% c("10008")) %>% 
+gVAR_fit %>% filter(SID %in% c("22652")) %>% 
   mutate(map(temp_plot, plot), map(contemp_plot, plot))
 ```
 
-#### Subject 10240
+#### Subject 91339
 ```{r, results='hide'}
 par(mfrow = c(2,2))
-gVAR_fit %>% filter(SID %in% c("10240")) %>% 
+gVAR_fit %>% filter(SID %in% c("91339")) %>% 
   mutate(map(temp_plot, plot), map(contemp_plot, plot))
 ```
 
@@ -393,7 +390,7 @@ We might also want to see a table of the individual edge weights over time, so b
 
 #### Temporal
 ```{r, results= 'asis'}
-gVAR_fit %>% filter(SID %in% c("10008", "10240")) %>%
+gVAR_fit %>% filter(SID %in% c("22652", "91339")) %>%
   unnest(temp) %>% select(SID, wave, from, to, weight) %>%
   mutate_at(vars(from,to), funs(str_replace(., "_", " "))) %>%
   unite(temp, SID, wave, sep = ".") %>%
@@ -409,7 +406,7 @@ gVAR_fit %>% filter(SID %in% c("10008", "10240")) %>%
 
 #### Contemporaneous
 ```{r, results = 'asis'}
-gVAR_fit %>% filter(SID %in% c("10008", "10240")) %>%
+gVAR_fit %>% filter(SID %in% c("22652", "91339")) %>%
   unnest(contemp) %>% select(SID, wave, Var1, Var2, weight) %>%
   unite(temp, SID, wave, sep = ".") %>%
   spread(key = temp, value = weight) %>%
@@ -508,8 +505,8 @@ centrality <- temp_centrality %>%
 
 # generate sample plot for subjects 1 & 2
 centrality %>% 
-    filter(SID %in% c("10008", "10204") &  grepl("trength", measure)) %>%
-    mutate(SID = recode(SID, `10008` = "1", `10204` = "2")) %>%
+    filter(SID %in% c("", "10204") &  grepl("trength", measure)) %>%
+    mutate(SID = recode(SID, `` = "1", `10204` = "2")) %>%
     arrange(measure, wave) %>%
     ggplot(aes(x = var, y = z, group = wave))+
       geom_line(aes(linetype = wave), color = "black", size = .3) + 
@@ -794,9 +791,9 @@ gVAR_fit_split <- unique(expand.grid(stringsAsFactors = F,
   filter(count >= 20) %>%
   tbl_df() %>%
   arrange(wave, SID)) %>%
-  filter(!(wave == "1" & SID %in% c("10020", "10036", "10037", "10041", "10116",
-            "10160", "10187", "10273", "10371", "10428", "10463", "10512"))) %>%
-  filter(!(wave == "2" & SID %in% c("10161", "10204", "10248", "10280"))) %>%
+  filter(!(wave == "1" & SID %in% c("88595", "7287", "30871", "42807", "53655",
+            "70848", "6009", "29473", "75689", "28212", "25083", "34967"))) %>%
+  filter(!(wave == "2" & SID %in% c("13674", "47525", "20054", "57290"))) %>%
   mutate(row = row_number(),
          gVAR_fit = pmap(list(SID, wave, split_type, split_num, row), 
                          possibly(gVAR_split_fun, NA_real_)))
@@ -1666,9 +1663,9 @@ data.frame(consis_rs) %>%
 ##Profile Consistency Correlates: Profile Consistency Correlates: What May Explain Individual Differences in Network Consistency?
 ```{r, results = 'asis'}
 # read outcome variables from wave 1 #
-target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave-1/target_w1_RENAMED.csv", data_path))) %>%
+target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave-1/target_w1_redacted.csv", data_path))) %>%
   mutate(wave = "1", ts.IDnum.w1 = ifelse(ts.IDnum.w1 < 10000, ts.IDnum.w1 + 10000, ts.IDnum.w1))
-target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave-4/home_w4_RENAMED.csv", data_path))) %>%
+target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave-4/target_w4_redacted.csv", data_path))) %>%
   mutate(wave = "2", ts.IDnum.w4 = ifelse(ts.IDnum.w4 < 10000, ts.IDnum.w4 + 10000, ts.IDnum.w4))
 
 names.w1 <- colnames(target.ratings.initial.w1)
@@ -1681,7 +1678,7 @@ colnames(target.ratings.initial.w2) <- names.w2
 target.ratings <- target.ratings.initial.w1 %>%
   full_join(target.ratings.initial.w2 %>%
               mutate(ts.AGQ03 = as.numeric(stringr::str_replace(ts.AGQ03, ",", ".")))) %>% 
-  select(wave,contains("ts"), -X, -(ts.startDateTime:ts.PRO17), -ts.DEM04, 
+  select(wave, contains("ts"), -X, -(ts.startDateTime:ts.PRO17), -ts.DEM04, 
          -(ts.DEM06:ts.DEM09), -(ts.DEM15:ts.DEM16), contains(".con")) %>%
   gather(key = item, value = value, -ts.IDnum, -wave) %>%
   group_by(item) %>% mutate(n = sum(!is.na(value))) %>%
