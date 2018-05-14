@@ -368,9 +368,9 @@ gVAR_fit <- gVAR_fit %>%
                           possibly(idio_plot_fun, NA_real_)))
 ```
 
-Below we will print the two example subjects ( = 1; 91339 = 2) from the manuscript.
+Below we will print the two example subjects (22652 = 1; 91339 = 2) from the manuscript.
 
-#### Subject 
+#### Subject 22652
 ```{r, results='hide'}
 par(mfrow = c(2,2))
 gVAR_fit %>% filter(SID %in% c("22652")) %>% 
@@ -505,8 +505,8 @@ centrality <- temp_centrality %>%
 
 # generate sample plot for subjects 1 & 2
 centrality %>% 
-    filter(SID %in% c("", "10204") &  grepl("trength", measure)) %>%
-    mutate(SID = recode(SID, `` = "1", `10204` = "2")) %>%
+    filter(SID %in% c("91339", "22652") &  grepl("trength", measure)) %>%
+    mutate(SID = recode(SID, `22652` = "1", `91339` = "2")) %>%
     arrange(measure, wave) %>%
     ggplot(aes(x = var, y = z, group = wave))+
       geom_line(aes(linetype = wave), color = "black", size = .3) + 
