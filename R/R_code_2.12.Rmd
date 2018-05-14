@@ -1661,11 +1661,11 @@ data.frame(consis_rs) %>%
 
 
 ##Profile Consistency Correlates: Profile Consistency Correlates: What May Explain Individual Differences in Network Consistency?
-```{r, results = 'asis'}
+```{r, results = 'asis', eval = F}
 # read outcome variables from wave 1 #
-target.ratings.initial.w1 <- tbl_df(read.csv(sprintf("%s/data/Wave-1/target_w1_redacted.csv", data_path))) %>%
+target.ratings.initial.w1 <- tbl_df(read.csv(url(sprintf("%s/data/target_w1_redacted.csv", data_path)))) %>%
   mutate(wave = "1", ts.IDnum.w1 = ifelse(ts.IDnum.w1 < 10000, ts.IDnum.w1 + 10000, ts.IDnum.w1))
-target.ratings.initial.w2 <- tbl_df(read.csv(sprintf("%s/data/Wave-4/target_w4_redacted.csv", data_path))) %>%
+target.ratings.initial.w2 <- tbl_df(read.csv(url(sprintf("%s/data/target_w4_redacted.csv", data_path)))) %>%
   mutate(wave = "2", ts.IDnum.w4 = ifelse(ts.IDnum.w4 < 10000, ts.IDnum.w4 + 10000, ts.IDnum.w4))
 
 names.w1 <- colnames(target.ratings.initial.w1)
