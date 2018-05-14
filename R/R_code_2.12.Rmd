@@ -73,9 +73,9 @@ The data include three waves of experience sampling method data from the Persona
 
 ##Load Data
 ```{r}
-wave1_all <- read.csv(sprintf("%s/data/esm_w1_RENAMED.csv",     data_path)) %>% tbl_df
-wave4_all <- read.csv(sprintf("%s/data/esm_w4_RENAMED_all.csv", data_path)) %>% tbl_df
-wave7_all <- read.csv(sprintf("%s/data/esm_w7_RENAMED_all.csv", data_path)) %>% tbl_df
+wave1_all <- read.csv(sprintf("%s/data/esm_w1_redacted.csv",     data_path)) %>% tbl_df
+wave4_all <- read.csv(sprintf("%s/data/esm_w4_redacted.csv", data_path)) %>% tbl_df
+wave7_all <- read.csv(sprintf("%s/data/esm_w7_redacted.csv", data_path)) %>% tbl_df
 ```
 
 ##Clean Data
